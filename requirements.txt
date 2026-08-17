@@ -4,4 +4,7 @@ httpx
 pydantic
 python-dotenv
 pandas
-numpy
+numpy fastapi
+uvicorn[standard]
+httpx
+pydantic
