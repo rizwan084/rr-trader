@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api.routes import router as api_router
+from app.app.api.routes import router as api_router
 
 
 app = FastAPI(
     title="RR Trader Live Scanner",
     description="AI-powered Binance Spot and Futures market scanner",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 
@@ -17,7 +17,7 @@ async def root():
     return {
         "app": "RR Trader Live Scanner",
         "status": "online",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "markets": ["futures", "spot"],
         "message": "RR Trader backend is working",
     }
