@@ -11,7 +11,6 @@ router = APIRouter()
 
 
 def _serialize(value: Any) -> Any:
-    """Convert common Python objects into API-safe data."""
     if value is None:
         return None
 
@@ -30,45 +29,56 @@ def _serialize(value: Any) -> Any:
     return value
 
 
-def _run_scanner(
+async def _run_scanner(
     symbol: Optional[str] = None,
     market: str = "futures",
 ) -> Any:
     """
     Run the RR Trader market scanner.
 
-    Supports both Binance Futures and Binance Spot.
+    Supports Binance Futures and Binance Spot.
     """
 
     scanner = MarketScanner()
 
-    # Prefer a symbol-specific scan when available.
+    # If a symbol-specific method exists, use it.
     if symbol:
         for method_name in (
             "scan_symbol",
             "analyze_symbol",
             "scan_market",
             "analyze",
-            "scan",
         ):
             method = getattr(scanner, method_name, None)
 
             if callable(method):
                 try:
-                    return method(
+                    result = method(
                         symbol=symbol.upper(),
                         market=market.lower(),
                     )
+
+                    if hasattr(result, "__await__"):
+                        result = await result
+
+                    return result
+
                 except TypeError:
                     try:
-                        return method(
+                        result = method(
                             symbol.upper(),
                             market.lower(),
                         )
+
+                        if hasattr(result, "__await__"):
+                            result = await result
+
+                        return result
+
                     except TypeError:
                         continue
 
-    # Otherwise run the general market scanner.
+    # General market scan
     for method_name in (
         "scan",
         "scan_market",
@@ -80,12 +90,33 @@ def _run_scanner(
 
         if callable(method):
             try:
-                return method(market=market.lower())
+                result = method(
+                    market=market.lower()
+                )
+
+                if hasattr(result, "__await__"):
+                    result = await result
+
+                return result
+
             except TypeError:
                 try:
-                    return method(market.lower())
+                    result = method(
+                        market.lower()
+                    )
+
+                    if hasattr(result, "__await__"):
+                        result = await result
+
+                    return result
+
                 except TypeError:
-                    return method()
+                    result = method()
+
+                    if hasattr(result, "__await__"):
+                        result = await result
+
+                    return result
 
     raise RuntimeError(
         "MarketScanner does not expose a supported scan method."
@@ -94,7 +125,6 @@ def _run_scanner(
 
 @router.get("/")
 async def api_root() -> dict[str, Any]:
-    """RR Trader API information."""
     return {
         "app": "RR Trader",
         "status": "online",
@@ -106,7 +136,6 @@ async def api_root() -> dict[str, Any]:
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    """Health check endpoint."""
     return {
         "success": True,
         "status": "healthy",
@@ -125,14 +154,6 @@ async def scan_market(
         description="Optional symbol, for example BTCUSDT",
     ),
 ) -> dict[str, Any]:
-    """
-    Scan Binance market data.
-
-    Examples:
-    /api/scan?market=futures
-    /api/scan?market=spot
-    /api/scan?market=futures&symbol=BTCUSDT
-    """
 
     market = market.lower().strip()
 
@@ -146,7 +167,7 @@ async def scan_market(
         symbol = symbol.upper().replace("/", "").strip()
 
     try:
-        result = _run_scanner(
+        result = await _run_scanner(
             symbol=symbol,
             market=market,
         )
@@ -179,9 +200,6 @@ async def analyze_symbol(
         description="Binance market: futures or spot",
     ),
 ) -> dict[str, Any]:
-    """
-    Analyze a single coin on the selected Binance market.
-    """
 
     market = market.lower().strip()
     symbol = symbol.upper().replace("/", "").strip()
@@ -199,7 +217,7 @@ async def analyze_symbol(
         )
 
     try:
-        result = _run_scanner(
+        result = await _run_scanner(
             symbol=symbol,
             market=market,
         )
@@ -220,7 +238,6 @@ async def analyze_symbol(
 
 @router.get("/markets")
 async def supported_markets() -> dict[str, Any]:
-    """Return supported Binance markets."""
     return {
         "success": True,
         "markets": [
