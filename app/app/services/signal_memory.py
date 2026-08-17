@@ -6,16 +6,38 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 
+# ============================================================
+# TIME
+# ============================================================
+
+def utc_now() -> str:
+    """Return current UTC time in ISO format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# STORED SIGNAL
+# ============================================================
+
 @dataclass
 class StoredSignal:
     """
-    RR Trader signal memory record.
+    RR Trader persistent-style signal memory record.
 
-    Stores a generated signal so the Signal Monitor and
-    AI Assistant can later check its result.
+    Stores:
+    - Signal direction
+    - Entry
+    - Stop loss
+    - TP1 / TP2 / TP3
+    - Current price
+    - TP/SL hit status
+    - Result
+    - Monitoring information
+    - AI analysis
     """
 
     id: str
+
     symbol: str
     market: str
     timeframe: str
@@ -37,13 +59,27 @@ class StoredSignal:
     tp3_hit: bool = False
     sl_hit: bool = False
 
+    current_price: Optional[float] = None
+    last_checked_price: Optional[float] = None
+
+    result: Optional[str] = None
+
     created_at: str = ""
     updated_at: str = ""
+
+    tp1_hit_at: Optional[str] = None
+    tp2_hit_at: Optional[str] = None
+    tp3_hit_at: Optional[str] = None
+    sl_hit_at: Optional[str] = None
+
     closed_at: Optional[str] = None
 
-    notes: List[str] = None
+    ai_analysis: Optional[str] = None
+
+    notes: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
+
         if self.notes is None:
             self.notes = []
 
@@ -60,36 +96,37 @@ class StoredSignal:
 
 
 # ============================================================
-# TIME
-# ============================================================
-
-def utc_now() -> str:
-    """
-    Return current UTC time in ISO format.
-    """
-    return datetime.now(timezone.utc).isoformat()
-
-
-# ============================================================
 # SIGNAL MEMORY
 # ============================================================
 
 class SignalMemory:
     """
-    Temporary in-memory signal storage.
+    RR Trader signal memory.
 
-    This is the first version of RR Trader signal memory.
+    This version is designed for:
 
-    Later this can be replaced with PostgreSQL/Supabase
-    without changing the Signal Monitor or AI interface.
+    Signal
+       ↓
+    Store
+       ↓
+    Monitor
+       ↓
+    TP1 / TP2 / TP3 / SL
+       ↓
+    AI result analysis
+       ↓
+    Telegram notification
+
+    Current storage is in-memory.
+    Later it can be moved to PostgreSQL/Supabase.
     """
 
     def __init__(self) -> None:
         self._signals: Dict[str, StoredSignal] = {}
 
-    # --------------------------------------------------------
+    # ========================================================
     # CREATE SIGNAL
-    # --------------------------------------------------------
+    # ========================================================
 
     def create_signal(
         self,
@@ -114,16 +151,21 @@ class SignalMemory:
 
         record = StoredSignal(
             id=signal_id,
+
             symbol=symbol.upper().replace("/", ""),
             market=market.lower(),
             timeframe=timeframe,
+
             signal=signal.upper(),
             confidence=float(confidence),
+
             entry=entry,
             stop_loss=stop_loss,
+
             tp1=tp1,
             tp2=tp2,
             tp3=tp3,
+
             notes=notes or [],
         )
 
@@ -131,9 +173,9 @@ class SignalMemory:
 
         return record.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
     # GET SIGNAL
-    # --------------------------------------------------------
+    # ========================================================
 
     def get_signal(
         self,
@@ -147,9 +189,9 @@ class SignalMemory:
 
         return signal.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
     # GET ALL SIGNALS
-    # --------------------------------------------------------
+    # ========================================================
 
     def get_all_signals(self) -> List[Dict[str, Any]]:
 
@@ -168,9 +210,9 @@ class SignalMemory:
 
         return signals
 
-    # --------------------------------------------------------
+    # ========================================================
     # GET OPEN SIGNALS
-    # --------------------------------------------------------
+    # ========================================================
 
     def get_open_signals(self) -> List[Dict[str, Any]]:
 
@@ -190,9 +232,9 @@ class SignalMemory:
 
         return signals
 
-    # --------------------------------------------------------
+    # ========================================================
     # UPDATE SIGNAL
-    # --------------------------------------------------------
+    # ========================================================
 
     def update_signal(
         self,
@@ -211,8 +253,16 @@ class SignalMemory:
             "tp2_hit",
             "tp3_hit",
             "sl_hit",
+            "current_price",
+            "last_checked_price",
+            "result",
             "updated_at",
+            "tp1_hit_at",
+            "tp2_hit_at",
+            "tp3_hit_at",
+            "sl_hit_at",
             "closed_at",
+            "ai_analysis",
             "notes",
         }
 
@@ -231,14 +281,40 @@ class SignalMemory:
 
         return signal.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
+    # UPDATE CURRENT PRICE
+    # ========================================================
+
+    def update_price(
+        self,
+        signal_id: str,
+        price: float,
+    ) -> Optional[Dict[str, Any]]:
+
+        signal = self._signals.get(signal_id)
+
+        if signal is None:
+            return None
+
+        if signal.current_price is not None:
+            signal.last_checked_price = (
+                signal.current_price
+            )
+
+        signal.current_price = float(price)
+        signal.updated_at = utc_now()
+
+        return signal.to_dict()
+
+    # ========================================================
     # MARK TP HIT
-    # --------------------------------------------------------
+    # ========================================================
 
     def mark_tp_hit(
         self,
         signal_id: str,
         target: int,
+        price: Optional[float] = None,
         note: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
 
@@ -247,34 +323,73 @@ class SignalMemory:
         if signal is None:
             return None
 
+        now = utc_now()
+
         if target == 1:
+
+            if signal.tp1_hit:
+                return signal.to_dict()
+
             signal.tp1_hit = True
+            signal.tp1_hit_at = now
+
+            result_note = "TP1 HIT"
 
         elif target == 2:
+
+            if signal.tp2_hit:
+                return signal.to_dict()
+
             signal.tp2_hit = True
+            signal.tp2_hit_at = now
+
+            result_note = "TP2 HIT"
 
         elif target == 3:
+
+            if signal.tp3_hit:
+                return signal.to_dict()
+
             signal.tp3_hit = True
+            signal.tp3_hit_at = now
+
+            result_note = "TP3 HIT"
 
         else:
+
             raise ValueError(
                 "target must be 1, 2 or 3"
             )
 
+        if price is not None:
+            signal.current_price = float(price)
+
+        signal.result = result_note
+
         if note:
             signal.notes.append(note)
 
-        signal.updated_at = utc_now()
+        signal.notes.append(result_note)
+
+        # TP3 completes the signal.
+        if target == 3:
+
+            signal.status = "WIN"
+            signal.result = "TP3_HIT"
+            signal.closed_at = now
+
+        signal.updated_at = now
 
         return signal.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
     # MARK SL HIT
-    # --------------------------------------------------------
+    # ========================================================
 
     def mark_sl_hit(
         self,
         signal_id: str,
+        price: Optional[float] = None,
         note: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
 
@@ -283,19 +398,33 @@ class SignalMemory:
         if signal is None:
             return None
 
+        # Do not process SL twice.
+        if signal.sl_hit:
+            return signal.to_dict()
+
+        now = utc_now()
+
         signal.sl_hit = True
         signal.status = "LOSS"
-        signal.closed_at = utc_now()
-        signal.updated_at = utc_now()
+        signal.result = "SL_HIT"
+
+        signal.sl_hit_at = now
+        signal.closed_at = now
+        signal.updated_at = now
+
+        if price is not None:
+            signal.current_price = float(price)
+
+        signal.notes.append("SL HIT")
 
         if note:
             signal.notes.append(note)
 
         return signal.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
     # CLOSE SIGNAL
-    # --------------------------------------------------------
+    # ========================================================
 
     def close_signal(
         self,
@@ -318,9 +447,29 @@ class SignalMemory:
 
         return signal.to_dict()
 
-    # --------------------------------------------------------
+    # ========================================================
+    # AI ANALYSIS
+    # ========================================================
+
+    def save_ai_analysis(
+        self,
+        signal_id: str,
+        analysis: str,
+    ) -> Optional[Dict[str, Any]]:
+
+        signal = self._signals.get(signal_id)
+
+        if signal is None:
+            return None
+
+        signal.ai_analysis = analysis
+        signal.updated_at = utc_now()
+
+        return signal.to_dict()
+
+    # ========================================================
     # FIND BY SYMBOL
-    # --------------------------------------------------------
+    # ========================================================
 
     def find_by_symbol(
         self,
@@ -357,9 +506,9 @@ class SignalMemory:
 
         return results
 
-    # --------------------------------------------------------
+    # ========================================================
     # PERFORMANCE
-    # --------------------------------------------------------
+    # ========================================================
 
     def performance(self) -> Dict[str, Any]:
 
@@ -394,12 +543,34 @@ class SignalMemory:
             for signal in signals
         )
 
+        wins = sum(
+            signal.status == "WIN"
+            for signal in signals
+        )
+
+        losses = sum(
+            signal.status == "LOSS"
+            for signal in signals
+        )
+
         closed_count = total - open_count
+
+        win_rate = (
+            (wins / closed_count) * 100
+            if closed_count > 0
+            else 0.0
+        )
 
         return {
             "total_signals": total,
             "open_signals": open_count,
             "closed_signals": closed_count,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(
+                win_rate,
+                2,
+            ),
             "tp1_hits": tp1_hits,
             "tp2_hits": tp2_hits,
             "tp3_hits": tp3_hits,
