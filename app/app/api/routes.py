@@ -1,25 +1,116 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.scanner import MarketScanner
-from app.services.signal_engine import SignalEngine
 
 
-router = APIRouter(prefix="/api", tags=["RR Trader"])
+router = APIRouter()
 
-scanner = MarketScanner()
-signal_engine = SignalEngine()
+
+def _serialize(value: Any) -> Any:
+    """Convert common Python objects into API-safe data."""
+    if value is None:
+        return None
+
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+
+    if hasattr(value, "dict"):
+        return value.dict()
+
+    if isinstance(value, dict):
+        return {str(k): _serialize(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_serialize(v) for v in value]
+
+    return value
+
+
+def _run_scanner(
+    symbol: Optional[str] = None,
+    market: str = "futures",
+) -> Any:
+    """
+    Run the RR Trader market scanner.
+
+    Supports both Binance Futures and Binance Spot.
+    """
+
+    scanner = MarketScanner()
+
+    # Prefer a symbol-specific scan when available.
+    if symbol:
+        for method_name in (
+            "scan_symbol",
+            "analyze_symbol",
+            "scan_market",
+            "analyze",
+            "scan",
+        ):
+            method = getattr(scanner, method_name, None)
+
+            if callable(method):
+                try:
+                    return method(
+                        symbol=symbol.upper(),
+                        market=market.lower(),
+                    )
+                except TypeError:
+                    try:
+                        return method(
+                            symbol.upper(),
+                            market.lower(),
+                        )
+                    except TypeError:
+                        continue
+
+    # Otherwise run the general market scanner.
+    for method_name in (
+        "scan",
+        "scan_market",
+        "scan_markets",
+        "run",
+        "execute",
+    ):
+        method = getattr(scanner, method_name, None)
+
+        if callable(method):
+            try:
+                return method(market=market.lower())
+            except TypeError:
+                try:
+                    return method(market.lower())
+                except TypeError:
+                    return method()
+
+    raise RuntimeError(
+        "MarketScanner does not expose a supported scan method."
+    )
+
+
+@router.get("/")
+async def api_root() -> dict[str, Any]:
+    """RR Trader API information."""
+    return {
+        "app": "RR Trader",
+        "status": "online",
+        "version": "1.0",
+        "markets": ["futures", "spot"],
+        "message": "RR Trader API is running",
+    }
 
 
 @router.get("/health")
-async def health() -> Dict[str, Any]:
+async def health() -> dict[str, Any]:
+    """Health check endpoint."""
     return {
         "success": True,
-        "app": "RR Trader",
-        "status": "online",
+        "status": "healthy",
+        "service": "rr-trader-api",
     }
 
 
@@ -27,73 +118,121 @@ async def health() -> Dict[str, Any]:
 async def scan_market(
     market: str = Query(
         default="futures",
-        pattern="^(futures|spot)$",
+        description="Binance market: futures or spot",
     ),
-    limit: int = Query(
-        default=10,
-        ge=1,
-        le=50,
+    symbol: Optional[str] = Query(
+        default=None,
+        description="Optional symbol, for example BTCUSDT",
     ),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    """
+    Scan Binance market data.
+
+    Examples:
+    /api/scan?market=futures
+    /api/scan?market=spot
+    /api/scan?market=futures&symbol=BTCUSDT
+    """
+
+    market = market.lower().strip()
+
+    if market not in {"futures", "spot"}:
+        raise HTTPException(
+            status_code=400,
+            detail="market must be either 'futures' or 'spot'",
+        )
+
+    if symbol:
+        symbol = symbol.upper().replace("/", "").strip()
 
     try:
-        result = await scanner.scan(
+        result = _run_scanner(
+            symbol=symbol,
             market=market,
-            limit=limit,
         )
 
         return {
             "success": True,
             "market": market,
-            "results": result,
+            "symbol": symbol,
+            "data": _serialize(result),
         }
+
+    except HTTPException:
+        raise
 
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Market scan failed: {exc}",
+            detail=f"Scanner error: {str(exc)}",
         ) from exc
 
 
-@router.post("/analyze")
-async def analyze_market(
-    data: Dict[str, Any],
-) -> Dict[str, Any]:
+@router.get("/analyze")
+async def analyze_symbol(
+    symbol: str = Query(
+        ...,
+        description="Trading symbol, for example BTCUSDT",
+    ),
+    market: str = Query(
+        default="futures",
+        description="Binance market: futures or spot",
+    ),
+) -> dict[str, Any]:
+    """
+    Analyze a single coin on the selected Binance market.
+    """
 
-    if not data:
-        raise HTTPException(
-            status_code=400,
-            detail="Market data is required",
-        )
-
-    market = str(
-        data.get("market", "futures")
-    ).lower()
+    market = market.lower().strip()
+    symbol = symbol.upper().replace("/", "").strip()
 
     if market not in {"futures", "spot"}:
         raise HTTPException(
             status_code=400,
-            detail="market must be futures or spot",
+            detail="market must be either 'futures' or 'spot'",
         )
 
-    timeframe = str(
-        data.get("timeframe", "15m")
-    )
+    if not symbol.endswith("USDT"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only USDT trading pairs are currently supported.",
+        )
 
     try:
-        result = signal_engine.analyze(
-            data,
+        result = _run_scanner(
+            symbol=symbol,
             market=market,
-            timeframe=timeframe,
         )
 
         return {
             "success": True,
-            "data": result,
+            "symbol": symbol,
+            "market": market,
+            "data": _serialize(result),
         }
 
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Signal analysis failed: {exc}",
+            detail=f"Analysis error: {str(exc)}",
         ) from exc
+
+
+@router.get("/markets")
+async def supported_markets() -> dict[str, Any]:
+    """Return supported Binance markets."""
+    return {
+        "success": True,
+        "markets": [
+            {
+                "id": "futures",
+                "name": "Binance Futures",
+                "enabled": True,
+            },
+            {
+                "id": "spot",
+                "name": "Binance Spot",
+                "enabled": True,
+            },
+        ],
+    }
