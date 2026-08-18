@@ -15,13 +15,12 @@ from app.api.dashboard_routes import router as dashboard_router
 # PATHS
 # =========================================================
 
-BACKEND_DIR = Path(
+# /opt/render/project/src/backend/app/main.py
+# parents[2] = /opt/render/project/src
+
+PROJECT_ROOT = Path(
     __file__
 ).resolve().parents[2]
-
-PROJECT_ROOT = (
-    BACKEND_DIR.parent
-)
 
 FRONTEND_DIR = (
     PROJECT_ROOT / "frontend"
@@ -53,17 +52,21 @@ app = FastAPI(
 @app.get("/")
 async def root():
 
-    if FRONTEND_INDEX.exists():
+    if FRONTEND_INDEX.is_file():
 
         return FileResponse(
-            FRONTEND_INDEX
+            path=str(
+                FRONTEND_INDEX
+            ),
+            media_type="text/html",
         )
 
     return {
-        "success": True,
-        "app": "RR Trader",
-        "status": "online",
-        "version": "1.0.0",
+        "success": False,
+        "error": "Dashboard frontend not found.",
+        "frontend_path": str(
+            FRONTEND_INDEX
+        ),
     }
 
 
@@ -74,15 +77,21 @@ async def root():
 @app.get("/dashboard")
 async def dashboard():
 
-    if FRONTEND_INDEX.exists():
+    if FRONTEND_INDEX.is_file():
 
         return FileResponse(
-            FRONTEND_INDEX
+            path=str(
+                FRONTEND_INDEX
+            ),
+            media_type="text/html",
         )
 
     return {
         "success": False,
         "error": "Dashboard frontend not found.",
+        "frontend_path": str(
+            FRONTEND_INDEX
+        ),
     }
 
 
@@ -110,18 +119,15 @@ app.include_router(
     prefix="/api",
 )
 
-
 app.include_router(
     trade_router,
     prefix="/api",
 )
 
-
 app.include_router(
     ai_router,
     prefix="/api",
 )
-
 
 app.include_router(
     dashboard_router,
@@ -133,13 +139,15 @@ app.include_router(
 # STARTUP
 # =========================================================
 
-@app.on_event(
-    "startup"
-)
+@app.on_event("startup")
 async def startup_event():
 
     print(
         "RR Trader backend started successfully."
+    )
+
+    print(
+        f"Project root: {PROJECT_ROOT}"
     )
 
     print(
@@ -150,14 +158,17 @@ async def startup_event():
         f"Dashboard index: {FRONTEND_INDEX}"
     )
 
+    print(
+        f"Dashboard exists: "
+        f"{FRONTEND_INDEX.is_file()}"
+    )
+
 
 # =========================================================
 # SHUTDOWN
 # =========================================================
 
-@app.on_event(
-    "shutdown"
-)
+@app.on_event("shutdown")
 async def shutdown_event():
 
     print(
