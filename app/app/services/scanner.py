@@ -9,6 +9,7 @@ import httpx
 from ..config import Settings
 from ..clients.binance import BinanceClient
 from .confidence_engine import ConfidenceEngine
+from .trade_engine import default_trade_engine
 
 
 class MarketScanner:
@@ -19,8 +20,13 @@ class MarketScanner:
     - Binance Futures
     - Binance Spot
     - 24H liquidity
+    - 1m
+    - 2m (aggregated from 1m)
+    - 3m
     - 5m
     - 15m
+    - 30m
+    - 45m (aggregated from 15m)
     - 1h
     - 4h
     - EMA20 / EMA50
@@ -40,24 +46,37 @@ class MarketScanner:
     # =========================================================
 
     TIMEFRAMES = (
+        "1m",
+        "2m",
+        "3m",
         "5m",
         "15m",
+        "30m",
+        "45m",
         "1h",
         "4h",
     )
 
     NATIVE_TIMEFRAMES = (
+        "1m",
+        "3m",
         "5m",
         "15m",
+        "30m",
         "1h",
         "4h",
     )
 
     TIMEFRAME_WEIGHTS: Dict[str, float] = {
-        "5m": 0.10,
-        "15m": 0.25,
-        "1h": 0.30,
-        "4h": 0.35,
+        "1m": 0.04,
+        "2m": 0.04,
+        "3m": 0.05,
+        "5m": 0.07,
+        "15m": 0.16,
+        "30m": 0.16,
+        "45m": 0.14,
+        "1h": 0.17,
+        "4h": 0.17,
     }
 
     # =========================================================
@@ -89,20 +108,20 @@ class MarketScanner:
 
         # Keep memory controlled.
         self.base_candle_limit = max(
-            60,
+            80,
             min(
                 int(
                     self.settings.default_candle_limit
                 ),
-                120,
+                160,
             ),
         )
 
         # Maximum network requests at one time.
-        self.request_semaphore = asyncio.Semaphore(3)
+        self.request_semaphore = asyncio.Semaphore(4)
 
         # Maximum symbols analyzed at one time.
-        self.symbol_semaphore = asyncio.Semaphore(1)
+        self.symbol_semaphore = asyncio.Semaphore(2)
 
         # Advanced market intelligence.
         self.binance_client = BinanceClient(
@@ -681,19 +700,71 @@ class MarketScanner:
         )
 
         limit = max(
-            60,
+            80,
             min(
                 int(limit),
-                120,
+                160,
             ),
         )
 
-        # Only four native timeframes are scanned.
-        # This is intentional to reduce memory usage,
-        # request volume, and Render CPU pressure.
+        # -----------------------------------------------------
+        # 2M
+        # -----------------------------------------------------
+
+        if timeframe == "2m":
+
+            source_limit = min(
+                200,
+                (limit * 2) + 5,
+            )
+
+            one_minute = (
+                await self.get_klines(
+                    symbol=symbol,
+                    market=market,
+                    interval="1m",
+                    limit=source_limit,
+                )
+            )
+
+            return self.aggregate_klines(
+                one_minute,
+                2,
+            )[-limit:]
+
+        # -----------------------------------------------------
+        # 45M
+        # -----------------------------------------------------
+
+        if timeframe == "45m":
+
+            source_limit = min(
+                200,
+                (limit * 3) + 5,
+            )
+
+            fifteen_minute = (
+                await self.get_klines(
+                    symbol=symbol,
+                    market=market,
+                    interval="15m",
+                    limit=source_limit,
+                )
+            )
+
+            return self.aggregate_klines(
+                fifteen_minute,
+                3,
+            )[-limit:]
+
+        # -----------------------------------------------------
+        # Native timeframe
+        # -----------------------------------------------------
+
         if timeframe not in (
             self.NATIVE_TIMEFRAMES
         ):
+
             raise ValueError(
                 f"Unsupported timeframe: {timeframe}"
             )
@@ -957,6 +1028,106 @@ class MarketScanner:
             direction = "NEUTRAL"
 
         # -----------------------------------------------------
+        # VWAP (RECENT WINDOW)
+        # -----------------------------------------------------
+
+        vwap_window = min(50, len(closes))
+
+        vwap_num = 0.0
+        vwap_den = 0.0
+
+        for idx in range(
+            len(closes) - vwap_window,
+            len(closes),
+        ):
+            typical_price = (
+                highs[idx]
+                + lows[idx]
+                + closes[idx]
+            ) / 3.0
+
+            volume_value = max(
+                volumes[idx],
+                0.0,
+            )
+
+            vwap_num += (
+                typical_price
+                * volume_value
+            )
+
+            vwap_den += volume_value
+
+        vwap = (
+            vwap_num / vwap_den
+            if vwap_den > 0
+            else price
+        )
+
+        # -----------------------------------------------------
+        # PREVIOUS STRUCTURE LEVELS
+        # -----------------------------------------------------
+
+        previous_high = (
+            max(highs[-21:-1])
+            if len(highs) >= 21
+            else recent_high
+        )
+
+        previous_low = (
+            min(lows[-21:-1])
+            if len(lows) >= 21
+            else recent_low
+        )
+
+        breakout_up = (
+            price > previous_high
+        )
+
+        breakout_down = (
+            price < previous_low
+        )
+
+        # -----------------------------------------------------
+        # SIMPLE DIVERGENCE CHECK
+        # -----------------------------------------------------
+
+        divergence = "NONE"
+
+        if len(closes) >= 12:
+
+            old_price = closes[-6]
+
+            old_previous = closes[-11]
+
+            old_momentum = (
+                (
+                    old_price
+                    - old_previous
+                )
+                / old_previous
+                * 100.0
+                if old_previous != 0
+                else 0.0
+            )
+
+            if (
+                price >= previous_high * 0.995
+                and momentum_pct < old_momentum
+                and old_momentum > 0
+            ):
+
+                divergence = "BEARISH"
+
+            elif (
+                price <= previous_low * 1.005
+                and momentum_pct > old_momentum
+                and old_momentum < 0
+            ):
+
+                divergence = "BULLISH"
+
+        # -----------------------------------------------------
         # EMA DISTANCE
         # -----------------------------------------------------
 
@@ -1007,6 +1178,15 @@ class MarketScanner:
             ),
             "recent_high": recent_high,
             "recent_low": recent_low,
+            "previous_high": previous_high,
+            "previous_low": previous_low,
+            "breakout_up": breakout_up,
+            "breakout_down": breakout_down,
+            "divergence": divergence,
+            "vwap": round(
+                vwap,
+                8,
+            ),
             "body_ratio": round(
                 body_ratio,
                 4,
@@ -1349,6 +1529,17 @@ class MarketScanner:
                 confidence,
                 2,
             ),
+            "confidence_level": confidence_level,
+            "confirmation_count": confirmation_count,
+            "total_confirmation_factors": total_confirmation_factors,
+            "confirmation_percent": round(
+                confirmation_percent,
+                2,
+            ),
+            "confidence_details": (
+                confidence_result.to_dict()
+            ),
+            "market_microstructure": microstructure,
             "score": round(
                 max(
                     bullish_score,
@@ -2387,6 +2578,1086 @@ class MarketScanner:
         return factors
 
     # =========================================================
+    # STRICT 24-POINT TRADE-GATE INPUT
+    # =========================================================
+
+    async def _build_strict_trade_gate_input(
+        self,
+        symbol: str,
+        market: str,
+        ticker: Dict[str, Any],
+        timeframe_analysis: Dict[str, Dict[str, Any]],
+        combined: Dict[str, Any],
+        factors: Dict[str, Dict[str, Any]],
+        trade_levels: Dict[str, Any],
+        microstructure: Dict[str, Any],
+        direction: str,
+        scanner_confidence: float,
+        current_price: float,
+        price_change_24h: float,
+    ) -> Dict[str, Any]:
+        """
+        Build a conservative, structured payload for the
+        24-point TradeEngine.
+
+        The scanner supplies measured values where available.
+        Missing external information is never fabricated.
+        """
+
+        analysis_15m = (
+            timeframe_analysis.get(
+                "15m",
+                {},
+            )
+        )
+
+        analysis_1h = (
+            timeframe_analysis.get(
+                "1h",
+                {},
+            )
+        )
+
+        analysis_4h = (
+            timeframe_analysis.get(
+                "4h",
+                {},
+            )
+        )
+
+        agreement_ratio = self._float(
+            combined.get(
+                "agreement_ratio",
+                0,
+            )
+        )
+
+        # -----------------------------------------------------
+        # 1) MARKET REGIME
+        # -----------------------------------------------------
+
+        four_hour_direction = str(
+            analysis_4h.get(
+                "direction",
+                "NEUTRAL",
+            )
+        ).upper()
+
+        one_hour_direction = str(
+            analysis_1h.get(
+                "direction",
+                "NEUTRAL",
+            )
+        ).upper()
+
+        if (
+            four_hour_direction == "LONG"
+            and one_hour_direction == "LONG"
+        ):
+            market_regime = "TREND_UP"
+
+        elif (
+            four_hour_direction == "SHORT"
+            and one_hour_direction == "SHORT"
+        ):
+            market_regime = "TREND_DOWN"
+
+        elif (
+            four_hour_direction == "LONG"
+            or one_hour_direction == "LONG"
+        ):
+            market_regime = "BULLISH"
+
+        elif (
+            four_hour_direction == "SHORT"
+            or one_hour_direction == "SHORT"
+        ):
+            market_regime = "BEARISH"
+
+        else:
+            market_regime = "RANGE"
+
+        # -----------------------------------------------------
+        # 2) MARKET STRUCTURE
+        # -----------------------------------------------------
+
+        structure = (
+            "BULLISH"
+            if direction == "LONG"
+            else
+            "BEARISH"
+            if direction == "SHORT"
+            else
+            "NEUTRAL"
+        )
+
+        # -----------------------------------------------------
+        # 3) MULTI-TIMEFRAME
+        # -----------------------------------------------------
+
+        mtf: Dict[str, Any] = {}
+
+        for timeframe in (
+            "5m",
+            "15m",
+            "1h",
+            "4h",
+        ):
+
+            item = timeframe_analysis.get(
+                timeframe,
+                {},
+            )
+
+            mtf[
+                timeframe
+            ] = {
+                "direction": str(
+                    item.get(
+                        "direction",
+                        "NEUTRAL",
+                    )
+                ).upper(),
+                "confidence": self._float(
+                    timeframe_analysis.get(
+                        timeframe,
+                        {},
+                    ).get(
+                        "score",
+                        0,
+                    )
+                ),
+            }
+
+        # -----------------------------------------------------
+        # 4) ENTRY LOCATION
+        # -----------------------------------------------------
+
+        recent_high = self._float(
+            analysis_15m.get(
+                "recent_high",
+                current_price,
+            ),
+            current_price,
+        )
+
+        recent_low = self._float(
+            analysis_15m.get(
+                "recent_low",
+                current_price,
+            ),
+            current_price,
+        )
+
+        range_size = max(
+            recent_high
+            - recent_low,
+            1e-12,
+        )
+
+        range_position = (
+            current_price
+            - recent_low
+        ) / range_size
+
+        near_support = (
+            range_position <= 0.35
+        )
+
+        near_resistance = (
+            range_position >= 0.85
+        )
+
+        entry_extended = (
+            abs(
+                self._float(
+                    analysis_15m.get(
+                        "ema_distance_pct",
+                        0,
+                    )
+                )
+            ) > 6.0
+            or (
+                direction == "LONG"
+                and near_resistance
+            )
+            or (
+                direction == "SHORT"
+                and near_support
+            )
+        )
+
+        entry_quality = 100.0
+
+        if entry_extended:
+            entry_quality -= 40.0
+
+        if direction == "LONG":
+            if near_support:
+                entry_quality += 0.0
+            elif near_resistance:
+                entry_quality -= 35.0
+
+        elif direction == "SHORT":
+            if near_resistance:
+                entry_quality += 0.0
+            elif near_support:
+                entry_quality -= 35.0
+
+        entry_quality = max(
+            0.0,
+            min(
+                100.0,
+                entry_quality,
+            ),
+        )
+
+        # -----------------------------------------------------
+        # 5) LIQUIDITY SWEEP
+        # -----------------------------------------------------
+
+        liquidation_factor = (
+            factors.get(
+                "liquidations",
+                {},
+            )
+        )
+
+        liquidation_direction = str(
+            liquidation_factor.get(
+                "direction",
+                "neutral",
+            )
+        ).lower()
+
+        # We only mark a sweep as present when liquidation
+        # direction materially supports the current setup.
+        if (
+            direction == "LONG"
+            and liquidation_direction == "bullish"
+        ):
+            liquidity_sweep = "LOW_SWEEP"
+        elif (
+            direction == "SHORT"
+            and liquidation_direction == "bearish"
+        ):
+            liquidity_sweep = "HIGH_SWEEP"
+        else:
+            liquidity_sweep = "NONE"
+
+        # -----------------------------------------------------
+        # 6) VWAP
+        # -----------------------------------------------------
+
+        vwap = self._float(
+            analysis_15m.get(
+                "vwap",
+                current_price,
+            ),
+            current_price,
+        )
+
+        # -----------------------------------------------------
+        # 7) ATR / VOLATILITY
+        # -----------------------------------------------------
+
+        atr_value = self._float(
+            analysis_15m.get(
+                "atr",
+                0,
+            )
+        )
+
+        atr_percent = (
+            atr_value
+            / current_price
+            * 100.0
+            if current_price > 0
+            else 0.0
+        )
+
+        volatility_ok = (
+            0.10
+            <= atr_percent
+            <= 12.0
+        )
+
+        # -----------------------------------------------------
+        # 8) MOMENTUM
+        # -----------------------------------------------------
+
+        momentum = self._float(
+            analysis_15m.get(
+                "momentum",
+                0,
+            )
+        )
+
+        momentum_direction = (
+            "BULLISH"
+            if momentum > 0
+            else
+            "BEARISH"
+            if momentum < 0
+            else
+            "NEUTRAL"
+        )
+
+        momentum_score = min(
+            100.0,
+            abs(momentum)
+            * 20.0,
+        )
+
+        # -----------------------------------------------------
+        # 9) DIVERGENCE
+        # -----------------------------------------------------
+
+        divergence = str(
+            analysis_15m.get(
+                "divergence",
+                "NONE",
+            )
+        ).upper()
+
+        # -----------------------------------------------------
+        # 10) BREAKOUT
+        # -----------------------------------------------------
+
+        breakout_up = bool(
+            analysis_15m.get(
+                "breakout_up",
+                False,
+            )
+        )
+
+        breakout_down = bool(
+            analysis_15m.get(
+                "breakout_down",
+                False,
+            )
+        )
+
+        breakout_trade = (
+            (
+                direction == "LONG"
+                and breakout_up
+            )
+            or
+            (
+                direction == "SHORT"
+                and breakout_down
+            )
+        )
+
+        breakout_close_confirmed = (
+            breakout_trade
+            and self._float(
+                analysis_15m.get(
+                    "body_ratio",
+                    0,
+                )
+            ) >= 0.50
+        )
+
+        # -----------------------------------------------------
+        # 11) RETEST
+        # -----------------------------------------------------
+
+        previous_high = self._float(
+            analysis_15m.get(
+                "previous_high",
+                recent_high,
+            ),
+            recent_high,
+        )
+
+        previous_low = self._float(
+            analysis_15m.get(
+                "previous_low",
+                recent_low,
+            ),
+            recent_low,
+        )
+
+        retest_required = False
+        retest_confirmed = False
+        retest_hold = False
+
+        if (
+            direction == "LONG"
+            and breakout_up
+        ):
+
+            retest_required = True
+
+            retest_distance = (
+                abs(
+                    current_price
+                    - previous_high
+                )
+                / max(
+                    current_price,
+                    1e-12,
+                )
+                * 100.0
+            )
+
+            retest_confirmed = (
+                retest_distance <= 1.0
+            )
+
+            retest_hold = (
+                current_price
+                >= previous_high * 0.99
+            )
+
+        elif (
+            direction == "SHORT"
+            and breakout_down
+        ):
+
+            retest_required = True
+
+            retest_distance = (
+                abs(
+                    current_price
+                    - previous_low
+                )
+                / max(
+                    current_price,
+                    1e-12,
+                )
+                * 100.0
+            )
+
+            retest_confirmed = (
+                retest_distance <= 1.0
+            )
+
+            retest_hold = (
+                current_price
+                <= previous_low * 1.01
+            )
+
+        # -----------------------------------------------------
+        # 12) DERIVATIVES
+        # -----------------------------------------------------
+
+        oi_factor = factors.get(
+            "open_interest",
+            {},
+        )
+
+        positioning_factor = factors.get(
+            "positioning",
+            {},
+        )
+
+        funding_rows = (
+            microstructure.get(
+                "funding",
+                [],
+            )
+            or []
+        )
+
+        funding_rate = 0.0
+
+        if (
+            isinstance(
+                funding_rows,
+                list,
+            )
+            and funding_rows
+        ):
+
+            funding_rate = self._float(
+                funding_rows[-1].get(
+                    "fundingRate",
+                    0,
+                )
+            )
+
+        oi_direction = str(
+            oi_factor.get(
+                "direction",
+                "neutral",
+            )
+        ).lower()
+
+        if oi_direction == "bullish":
+            oi_price_relationship = (
+                "SUPPORTING"
+                if direction == "LONG"
+                else "CONTRADICTING"
+            )
+        elif oi_direction == "bearish":
+            oi_price_relationship = (
+                "SUPPORTING"
+                if direction == "SHORT"
+                else "CONTRADICTING"
+            )
+        else:
+            oi_price_relationship = "NEUTRAL"
+
+        positioning_direction = str(
+            positioning_factor.get(
+                "direction",
+                "neutral",
+            )
+        ).lower()
+
+        if (
+            positioning_direction
+            == "bullish"
+        ):
+
+            derivatives_bias = (
+                "BULLISH"
+            )
+
+        elif (
+            positioning_direction
+            == "bearish"
+        ):
+
+            derivatives_bias = (
+                "BEARISH"
+            )
+
+        else:
+
+            derivatives_bias = (
+                "NEUTRAL"
+            )
+
+        # -----------------------------------------------------
+        # 13) LIQUIDATIONS
+        # -----------------------------------------------------
+
+        liquidation_bias = (
+            "BULLISH"
+            if liquidation_direction == "bullish"
+            else
+            "BEARISH"
+            if liquidation_direction == "bearish"
+            else
+            "NEUTRAL"
+        )
+
+        # -----------------------------------------------------
+        # 14) ORDER BOOK
+        # -----------------------------------------------------
+
+        book = (
+            microstructure.get(
+                "order_book",
+                {}
+            )
+            or {}
+        )
+
+        bids = (
+            book.get(
+                "bids",
+                [],
+            )
+            if isinstance(
+                book,
+                dict,
+            )
+            else []
+        )
+
+        asks = (
+            book.get(
+                "asks",
+                [],
+            )
+            if isinstance(
+                book,
+                dict,
+            )
+            else []
+        )
+
+        bid_volume = 0.0
+        ask_volume = 0.0
+
+        for level in bids:
+
+            try:
+
+                bid_volume += self._float(
+                    level[1]
+                )
+
+            except (
+                TypeError,
+                ValueError,
+                IndexError,
+            ):
+
+                continue
+
+        for level in asks:
+
+            try:
+
+                ask_volume += self._float(
+                    level[1]
+                )
+
+            except (
+                TypeError,
+                ValueError,
+                IndexError,
+            ):
+
+                continue
+
+        book_total = (
+            bid_volume
+            + ask_volume
+        )
+
+        book_imbalance = (
+            (
+                bid_volume
+                - ask_volume
+            )
+            / book_total
+            if book_total > 0
+            else 0.0
+        )
+
+        # -----------------------------------------------------
+        # 15) TRADEABILITY
+        # -----------------------------------------------------
+
+        best_bid = (
+            self._float(
+                bids[0][0]
+            )
+            if bids
+            else current_price
+        )
+
+        best_ask = (
+            self._float(
+                asks[0][0]
+            )
+            if asks
+            else current_price
+        )
+
+        spread_percent = (
+            abs(
+                best_ask
+                - best_bid
+            )
+            / current_price
+            * 100.0
+            if current_price > 0
+            else 0.0
+        )
+
+        liquidity_score = min(
+            100.0,
+            max(
+                0.0,
+                (
+                    self._float(
+                        ticker.get(
+                            "quoteVolume",
+                            0,
+                        )
+                    )
+                    / 1_000_000.0
+                    * 10.0
+                ),
+            ),
+        )
+
+        expected_slippage_percent = (
+            spread_percent
+        )
+
+        # -----------------------------------------------------
+        # 16) NEWS / EVENT RISK
+        # -----------------------------------------------------
+        #
+        # The current project has no authenticated news-feed
+        # provider. We therefore do NOT invent a "safe" news
+        # result. The trade engine's optional news gate remains
+        # disabled until a real news provider is connected.
+        #
+        news_risk = "UNKNOWN"
+
+        # -----------------------------------------------------
+        # 17) BTC / MARKET CONTEXT
+        # -----------------------------------------------------
+
+        btc_bias = "NEUTRAL"
+
+        if (
+            symbol != "BTCUSDT"
+            and market == "futures"
+        ):
+
+            try:
+
+                btc_ticker = (
+                    await self.get_ticker(
+                        "BTCUSDT",
+                        "futures",
+                    )
+                )
+
+                btc_change = self._float(
+                    btc_ticker.get(
+                        "priceChangePercent",
+                        0,
+                    )
+                )
+
+                if btc_change >= 0.20:
+
+                    btc_bias = "BULLISH"
+
+                elif btc_change <= -0.20:
+
+                    btc_bias = "BEARISH"
+
+            except Exception:
+
+                btc_bias = "NEUTRAL"
+
+        elif symbol == "BTCUSDT":
+
+            if price_change_24h >= 0.20:
+
+                btc_bias = "BULLISH"
+
+            elif price_change_24h <= -0.20:
+
+                btc_bias = "BEARISH"
+
+        # -----------------------------------------------------
+        # 18) RELATIVE STRENGTH
+        # -----------------------------------------------------
+
+        if btc_bias == "BULLISH":
+
+            btc_reference = 1.0
+
+        elif btc_bias == "BEARISH":
+
+            btc_reference = -1.0
+
+        else:
+
+            btc_reference = 0.0
+
+        # Convert relative performance into 0..100.
+        relative_strength = max(
+            0.0,
+            min(
+                100.0,
+                50.0
+                + (
+                    price_change_24h
+                    - (
+                        btc_reference
+                        * 1.0
+                    )
+                )
+                * 10.0,
+            ),
+        )
+
+        # -----------------------------------------------------
+        # 19) RISK / REWARD
+        # -----------------------------------------------------
+
+        risk_reward = self._float(
+            trade_levels.get(
+                "risk_reward",
+                0,
+            )
+        )
+
+        # -----------------------------------------------------
+        # 20) STOP QUALITY
+        # -----------------------------------------------------
+
+        entry = self._float(
+            trade_levels.get(
+                "entry",
+                current_price,
+            ),
+            current_price,
+        )
+
+        stop_loss = self._float(
+            trade_levels.get(
+                "stop_loss",
+                0,
+            )
+        )
+
+        if direction == "LONG":
+
+            stop_structure_valid = (
+                0 < stop_loss < entry
+            )
+
+        elif direction == "SHORT":
+
+            stop_structure_valid = (
+                stop_loss > entry
+            )
+
+        else:
+
+            stop_structure_valid = False
+
+        # -----------------------------------------------------
+        # 21) POSITION SIZING
+        # -----------------------------------------------------
+        #
+        # TradeEngine calculates exact size from its risk config.
+        # Scanner only supplies the measured entry and stop.
+        # -----------------------------------------------------
+
+        # -----------------------------------------------------
+        # 22) PORTFOLIO RISK
+        # -----------------------------------------------------
+        #
+        # Checked by TradeEngine using live engine state.
+        # -----------------------------------------------------
+
+        # -----------------------------------------------------
+        # 23) EXECUTION QUALITY
+        # -----------------------------------------------------
+
+        execution_ok = (
+            spread_percent
+            <= default_trade_engine.config.max_spread_percent
+        )
+
+        # -----------------------------------------------------
+        # 24) SIGNAL FRESHNESS
+        # -----------------------------------------------------
+
+        timestamp = (
+            self._now()
+        )
+
+        return {
+            "symbol": symbol,
+            "market": market,
+            "direction": direction,
+            "confidence": scanner_confidence,
+
+            "market_regime":
+                market_regime,
+
+            "regime_strength":
+                max(
+                    0.0,
+                    min(
+                        100.0,
+                        agreement_ratio * 100.0,
+                    ),
+                ),
+
+            "market_structure":
+                structure,
+
+            "timeframes":
+                mtf,
+
+            "entry":
+                entry,
+
+            "stop_loss":
+                stop_loss,
+
+            "tp1":
+                trade_levels.get(
+                    "tp1"
+                ),
+
+            "tp2":
+                trade_levels.get(
+                    "tp2"
+                ),
+
+            "tp3":
+                trade_levels.get(
+                    "tp3"
+                ),
+
+            "risk_reward":
+                risk_reward,
+
+            "entry_quality_score":
+                entry_quality,
+
+            "entry_extended":
+                entry_extended,
+
+            "near_support":
+                near_support,
+
+            "near_demand":
+                near_support,
+
+            "near_resistance":
+                near_resistance,
+
+            "near_supply":
+                near_resistance,
+
+            "liquidity_sweep":
+                liquidity_sweep,
+
+            "liquidity_sweep_valid":
+                liquidity_sweep != "NONE",
+
+            "stop_hunt_risk":
+                entry_extended,
+
+            "vwap":
+                vwap,
+
+            "atr_percent":
+                atr_percent,
+
+            "volatility_ok":
+                volatility_ok,
+
+            "momentum":
+                momentum_direction,
+
+            "momentum_score":
+                momentum_score,
+
+            "divergence":
+                divergence,
+
+            "breakout_required":
+                breakout_trade,
+
+            "breakout_trade":
+                breakout_trade,
+
+            "breakout_confirmed":
+                breakout_trade,
+
+            "breakout_valid":
+                breakout_close_confirmed,
+
+            "breakout_close_confirmed":
+                breakout_close_confirmed,
+
+            "false_breakout":
+                False,
+
+            "retest_required":
+                retest_required,
+
+            "retest_confirmed":
+                retest_confirmed,
+
+            "retest_hold":
+                retest_hold,
+
+            "derivatives_bias":
+                derivatives_bias,
+
+            "derivatives_direction":
+                derivatives_bias,
+
+            "oi_price_relationship":
+                oi_price_relationship,
+
+            "funding_rate":
+                funding_rate,
+
+            "liquidation_bias":
+                liquidation_bias,
+
+            "liquidation_context":
+                liquidation_bias,
+
+            "liquidation_contradiction":
+                (
+                    liquidation_direction
+                    not in {
+                        "neutral",
+                        "bullish"
+                        if direction == "LONG"
+                        else "bearish"
+                        if direction == "SHORT"
+                        else "neutral",
+                    }
+                ),
+
+            "order_book_imbalance":
+                book_imbalance,
+
+            "order_book_absorption":
+                "NEUTRAL",
+
+            "spread_percent":
+                spread_percent,
+
+            "expected_slippage_percent":
+                expected_slippage_percent,
+
+            "liquidity_score":
+                liquidity_score,
+
+            "news_risk":
+                news_risk,
+
+            "major_news_event":
+                False,
+
+            "btc_bias":
+                btc_bias,
+
+            "market_bias":
+                btc_bias,
+
+            "relative_strength":
+                relative_strength,
+
+            "stop_structure_valid":
+                stop_structure_valid,
+
+            "execution_ok":
+                execution_ok,
+
+            "signal_age_seconds":
+                0.0,
+
+            "signal_timestamp":
+                timestamp,
+        }
+
+    @staticmethod
+    def _now() -> str:
+        from datetime import datetime, timezone
+
+        return datetime.now(
+            timezone.utc
+        ).isoformat()
+
+    # =========================================================
     # SINGLE SYMBOL SCAN
     # =========================================================
 
@@ -2421,10 +3692,10 @@ class MarketScanner:
         )
 
         requested_limit = max(
-            60,
+            80,
             min(
                 requested_limit,
-                120,
+                160,
             ),
         )
 
@@ -2438,49 +3709,107 @@ class MarketScanner:
         )
 
         # -----------------------------------------------------
-        # Fetch ONLY the four configured timeframes.
-        #
-        # 5m  -> execution / entry context
-        # 15m -> setup confirmation
-        # 1h  -> higher-timeframe trend
-        # 4h  -> primary market direction
-        #
-        # Keeping the scanner to four native timeframes
-        # materially reduces memory and request pressure.
+        # Fetch native timeframes.
+        # Request semaphore prevents
+        # too many simultaneous HTTP requests.
         # -----------------------------------------------------
+
+        native_tasks = {
+            timeframe: asyncio.create_task(
+                self.get_timeframe_klines(
+                    symbol=symbol,
+                    market=market,
+                    timeframe=timeframe,
+                    limit=requested_limit,
+                )
+            )
+            for timeframe in (
+                self.NATIVE_TIMEFRAMES
+            )
+        }
 
         native_results: Dict[
             str,
             List[List[Any]],
         ] = {}
 
-        for timeframe in self.NATIVE_TIMEFRAMES:
+        for timeframe, task in (
+            native_tasks.items()
+        ):
+
             try:
+
                 native_results[
                     timeframe
-                ] = await self.get_timeframe_klines(
-                    symbol=symbol,
-                    market=market,
-                    timeframe=timeframe,
-                    limit=requested_limit,
-                )
+                ] = await task
+
             except Exception:
+
                 native_results[
                     timeframe
                 ] = []
 
+        # Release task references.
+        del native_tasks
+
+        # -----------------------------------------------------
+        # Build 2m and 45m.
+        # -----------------------------------------------------
+
+        one_minute = (
+            native_results.get(
+                "1m",
+                []
+            )
+        )
+
+        fifteen_minute = (
+            native_results.get(
+                "15m",
+                []
+            )
+        )
+
         timeframe_klines: Dict[
             str,
             List[List[Any]],
-        ] = {
-            timeframe: native_results.get(
+        ] = {}
+
+        for timeframe in (
+            "1m",
+            "3m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "4h",
+        ):
+
+            timeframe_klines[
+                timeframe
+            ] = native_results.get(
                 timeframe,
                 [],
             )
-            for timeframe in self.TIMEFRAMES
-        }
 
+        timeframe_klines[
+            "2m"
+        ] = self.aggregate_klines(
+            one_minute,
+            2,
+        )[-requested_limit:]
+
+        timeframe_klines[
+            "45m"
+        ] = self.aggregate_klines(
+            fifteen_minute,
+            3,
+        )[-requested_limit:]
+
+        # Release raw native container.
         del native_results
+        del one_minute
+        del fifteen_minute
 
         # -----------------------------------------------------
         # Analyze timeframe data.
@@ -2828,15 +4157,134 @@ class MarketScanner:
             )
         )
 
+        # -----------------------------------------------------
+        # STRICT 24-POINT TRADE GATE
+        # -----------------------------------------------------
+        #
+        # The scanner itself now evaluates the same 24-point
+        # execution gate used by the paper-trade engine.
+        #
+        # Existing scanner confidence is preserved separately
+        # as scanner_confidence.
+        # The public "confidence" returned by scan_symbol becomes
+        # the strict final trade-quality score so downstream
+        # dashboards/APIs cannot accidentally show a looser score.
+        # -----------------------------------------------------
+
+        gate_input = await self._build_strict_trade_gate_input(
+            symbol=symbol,
+            market=market,
+            ticker=ticker,
+            timeframe_analysis=timeframe_analysis,
+            combined=combined,
+            factors=factors,
+            trade_levels=trade_levels,
+            microstructure=microstructure,
+            direction=direction,
+            scanner_confidence=confidence,
+            current_price=current_price,
+            price_change_24h=price_change_24h,
+        )
+
+        trade_decision = (
+            default_trade_engine.evaluate_trade(
+                gate_input
+            )
+        )
+
+        strict_trade_score = self._float(
+            trade_decision.get(
+                "trade_score",
+                0,
+            )
+        )
+
+        strict_direction = str(
+            trade_decision.get(
+                "direction",
+                direction,
+            )
+            or direction
+        ).upper()
+
+        trade_decision_name = str(
+            trade_decision.get(
+                "decision",
+                "NO_TRADE",
+            )
+        )
+
+        passed_confirmations = int(
+            trade_decision.get(
+                "passed_confirmations",
+                0,
+            )
+            or 0
+        )
+
+        total_trade_confirmations = int(
+            trade_decision.get(
+                "total_confirmations",
+                24,
+            )
+            or 24
+        )
+
+        critical_failures = (
+            trade_decision.get(
+                "critical_failures",
+                [],
+            )
+        )
+
+        # Only a strict gate-approved setup is publishable.
         publishable = (
-            direction
-            in {
-                "LONG",
-                "SHORT",
-            }
-            and confidence >= self.min_confidence
-            and agreement_ratio >= 0.70
-            and confirmation_count >= 4
+            trade_decision_name
+            == "EXECUTE_CANDIDATE"
+        )
+
+        # Strict confidence is what downstream dashboard/API
+        # consumers should display as the final trade-quality score.
+        strict_confidence = round(
+            strict_trade_score,
+            2,
+        )
+
+        # Append gate reasons to the explainable reasons list.
+        gate_failures = [
+            str(item)
+            for item in (
+                critical_failures
+                if isinstance(
+                    critical_failures,
+                    list,
+                )
+                else []
+            )
+        ]
+
+        reasons.extend(
+            [
+                f"24-point trade gate: "
+                f"{passed_confirmations}/"
+                f"{total_trade_confirmations} checks passed",
+            ]
+        )
+
+        if gate_failures:
+            reasons.extend(
+                [
+                    f"Trade gate failed: {item}"
+                    for item in gate_failures
+                ]
+            )
+
+        reasons = list(
+            dict.fromkeys(
+                str(reason)
+                for reason in reasons
+                if reason
+            )
         )
 
         quote_volume_24h = (
@@ -2866,20 +4314,31 @@ class MarketScanner:
             "quote_volume_24h": (
                 quote_volume_24h
             ),
-            "direction": direction,
-            "confidence": round(
+            "direction": strict_direction,
+            "confidence": strict_confidence,
+            "scanner_confidence": round(
                 confidence,
                 2,
             ),
-            "confidence_level": confidence_level,
-            "confirmation_count": confirmation_count,
-            "total_confirmation_factors": total_confirmation_factors,
-            "confirmation_percent": round(
-                confirmation_percent,
-                2,
+            "trade_score": strict_confidence,
+            "trade_decision": trade_decision_name,
+            "scan_complete": True,
+            "passed_confirmations": (
+                passed_confirmations
             ),
-            "confidence_details": confidence_result.to_dict(),
-            "market_microstructure": microstructure,
+            "total_confirmations": (
+                total_trade_confirmations
+            ),
+            "critical_failures": (
+                critical_failures
+            ),
+            "confirmations": (
+                trade_decision.get(
+                    "confirmations",
+                    [],
+                )
+            ),
+            "trade_gate": trade_decision,
             "publishable": publishable,
             "reasons": reasons,
             "entry": trade_levels.get(
