@@ -2,9 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+)
 
-from app.app.services.scanner import MarketScanner
+from app.app.services.post_generator import (
+    PostGenerator,
+)
+from app.app.services.scanner import (
+    MarketScanner,
+)
 
 
 router = APIRouter()
@@ -17,25 +26,37 @@ router = APIRouter()
 def _serialize(value: Any) -> Any:
     """
     Convert Pydantic models, dictionaries, lists and tuples
-    into JSON-compatible data.
+    into JSON-compatible values.
     """
 
     if value is None:
         return None
 
-    if hasattr(value, "model_dump"):
+    if hasattr(
+        value,
+        "model_dump",
+    ):
         return value.model_dump()
 
-    if hasattr(value, "dict"):
+    if hasattr(
+        value,
+        "dict",
+    ):
         return value.dict()
 
-    if isinstance(value, dict):
+    if isinstance(
+        value,
+        dict,
+    ):
         return {
             str(key): _serialize(item)
             for key, item in value.items()
         }
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(
+        value,
+        (list, tuple),
+    ):
         return [
             _serialize(item)
             for item in value
@@ -45,7 +66,7 @@ def _serialize(value: Any) -> Any:
 
 
 # =========================================================
-# MARKET / SYMBOL HELPERS
+# MARKET VALIDATION
 # =========================================================
 
 def _validate_market(
@@ -62,6 +83,7 @@ def _validate_market(
         "futures",
         "spot",
     }:
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -73,37 +95,51 @@ def _validate_market(
     return market
 
 
+# =========================================================
+# SYMBOL NORMALIZATION
+# =========================================================
+
 def _normalize_symbol(
     symbol: str,
 ) -> str:
     """
-    Accept either:
+    Accept:
 
-        BTC
-        BTCUSDT
-        BTC/USDT
-        BTC-USDT
+    BTC
+    BTCUSDT
+    BTC/USDT
+    BTC-USDT
 
     and normalize to:
 
-        BTCUSDT
+    BTCUSDT
     """
 
     cleaned = (
         symbol
         .upper()
-        .replace("/", "")
-        .replace("-", "")
+        .replace(
+            "/",
+            "",
+        )
+        .replace(
+            "-",
+            "",
+        )
         .strip()
     )
 
     if not cleaned:
+
         raise HTTPException(
             status_code=400,
             detail="Symbol is required.",
         )
 
-    if not cleaned.endswith("USDT"):
+    if not cleaned.endswith(
+        "USDT"
+    ):
+
         cleaned = (
             f"{cleaned}USDT"
         )
@@ -146,16 +182,15 @@ async def _run_scanner(
     # MARKET SCAN
     # -----------------------------------------------------
 
-    # Render memory protection:
-    # never allow more than 5 deep-analysis candidates.
-
     safe_max_candidates = (
         5
         if max_candidates is None
         else max(
             1,
             min(
-                int(max_candidates),
+                int(
+                    max_candidates
+                ),
                 5,
             ),
         )
@@ -163,7 +198,9 @@ async def _run_scanner(
 
     return await scanner.scan(
         market=market,
-        max_candidates=safe_max_candidates,
+        max_candidates=(
+            safe_max_candidates
+        ),
     )
 
 
@@ -172,13 +209,13 @@ async def _run_scanner(
 # =========================================================
 
 @router.get("/")
-async def api_root() -> dict[str, Any]:
+async def api_root() -> Dict[str, Any]:
 
     return {
         "success": True,
         "app": "RR Trader",
         "status": "online",
-        "version": "4.0.1",
+        "version": "4.1.0",
         "markets": [
             "futures",
             "spot",
@@ -195,10 +232,7 @@ async def api_root() -> dict[str, Any]:
             "/api/scan",
             "/api/analyze",
             "/api/signals",
-            "/api/search",
-            "/api/auto/status",
-            "/api/auto/signals",
-            "/api/auto/candidates",
+            "/api/post/generate",
         ],
         "message": (
             "RR Trader API is running"
@@ -211,7 +245,7 @@ async def api_root() -> dict[str, Any]:
 # =========================================================
 
 @router.get("/health")
-async def health() -> dict[str, Any]:
+async def health() -> Dict[str, Any]:
 
     return {
         "success": True,
@@ -225,7 +259,7 @@ async def health() -> dict[str, Any]:
 # =========================================================
 
 @router.get("/markets")
-async def supported_markets() -> dict[str, Any]:
+async def supported_markets() -> Dict[str, Any]:
 
     return {
         "success": True,
@@ -245,31 +279,23 @@ async def supported_markets() -> dict[str, Any]:
 
 
 # =========================================================
-# SCAN
+# MARKET SCAN
 # =========================================================
 
 @router.get("/scan")
 async def scan_market(
     market: str = Query(
         default="futures",
-        description="futures or spot",
     ),
     symbol: Optional[str] = Query(
         default=None,
-        description=(
-            "Coin name or USDT pair"
-        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
-        description=(
-            "Maximum deep-analysis "
-            "candidates"
-        ),
     ),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
 
     market = _validate_market(
         market
@@ -292,7 +318,8 @@ async def scan_market(
             market=market,
             max_candidates=(
                 max_candidates
-                if normalized_symbol is None
+                if normalized_symbol
+                is None
                 else None
             ),
         )
@@ -314,13 +341,14 @@ async def scan_market(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Scanner error: {str(exc)}"
+                f"Scanner error: "
+                f"{str(exc)}"
             ),
         ) from exc
 
 
 # =========================================================
-# ANALYZE
+# SINGLE SYMBOL ANALYSIS
 # =========================================================
 
 @router.get("/analyze")
@@ -334,9 +362,8 @@ async def analyze_symbol(
     ),
     market: str = Query(
         default="futures",
-        description="futures or spot",
     ),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
 
     market = _validate_market(
         market
@@ -371,7 +398,8 @@ async def analyze_symbol(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Analysis error: {str(exc)}"
+                f"Analysis error: "
+                f"{str(exc)}"
             ),
         ) from exc
 
@@ -384,26 +412,18 @@ async def analyze_symbol(
 async def high_confidence_signals(
     market: str = Query(
         default="futures",
-        description="futures or spot",
     ),
     min_confidence: float = Query(
         default=90.0,
         ge=0.0,
         le=100.0,
-        description=(
-            "Minimum confidence percentage"
-        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
-        description=(
-            "Maximum deep-analysis "
-            "candidates"
-        ),
     ),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
 
     market = _validate_market(
         market
@@ -420,8 +440,10 @@ async def high_confidence_signals(
             result,
             dict,
         ):
+
             raise RuntimeError(
-                "Scanner returned an invalid response."
+                "Scanner returned "
+                "an invalid response."
             )
 
         candidates = result.get(
@@ -433,6 +455,7 @@ async def high_confidence_signals(
             candidates,
             list,
         ):
+
             candidates = []
 
         signals: list[
@@ -469,14 +492,18 @@ async def high_confidence_signals(
 
                 confidence = 0.0
 
-            direction = item.get(
-                "direction",
-                "NEUTRAL",
-            )
+            direction = str(
+                item.get(
+                    "direction",
+                    "NEUTRAL",
+                )
+            ).upper()
 
             if (
-                confidence >= min_confidence
-                and direction in {
+                confidence
+                >= min_confidence
+                and direction
+                in {
                     "LONG",
                     "SHORT",
                 }
@@ -502,15 +529,15 @@ async def high_confidence_signals(
                         "USDT"
                     )
 
-                # -------------------------------------------------
-                # Confidence level
-                # -------------------------------------------------
-
                 if confidence >= 99:
-                    level = "EXTREME"
+                    level = (
+                        "EXTREME"
+                    )
 
                 elif confidence >= 95:
-                    level = "VERY HIGH"
+                    level = (
+                        "VERY HIGH"
+                    )
 
                 elif confidence >= 90:
                     level = "HIGH"
@@ -529,10 +556,6 @@ async def high_confidence_signals(
                     enriched
                 )
 
-        # -----------------------------------------------------
-        # SORT
-        # -----------------------------------------------------
-
         signals.sort(
             key=lambda item: float(
                 item.get(
@@ -543,10 +566,6 @@ async def high_confidence_signals(
             reverse=True,
         )
 
-        # -----------------------------------------------------
-        # RESPONSE
-        # -----------------------------------------------------
-
         return {
             "success": True,
             "market": market,
@@ -556,17 +575,13 @@ async def high_confidence_signals(
             "requested_candidates": (
                 max_candidates
             ),
-
             "safe_max_candidates": 5,
-
             "scanned": len(
                 candidates
             ),
-
             "signals_count": len(
                 signals
             ),
-
             "signals_90_plus": sum(
                 1
                 for item in signals
@@ -577,7 +592,6 @@ async def high_confidence_signals(
                     )
                 ) >= 90
             ),
-
             "signals_95_plus": sum(
                 1
                 for item in signals
@@ -588,7 +602,6 @@ async def high_confidence_signals(
                     )
                 ) >= 95
             ),
-
             "signals_99_plus": sum(
                 1
                 for item in signals
@@ -599,7 +612,6 @@ async def high_confidence_signals(
                     )
                 ) >= 99
             ),
-
             "long_signals": sum(
                 1
                 for item in signals
@@ -607,7 +619,6 @@ async def high_confidence_signals(
                     "direction"
                 ) == "LONG"
             ),
-
             "short_signals": sum(
                 1
                 for item in signals
@@ -615,11 +626,9 @@ async def high_confidence_signals(
                     "direction"
                 ) == "SHORT"
             ),
-
             "signals": _serialize(
                 signals
             ),
-
             "top_signals": _serialize(
                 signals[:5]
             ),
@@ -634,6 +643,135 @@ async def high_confidence_signals(
             status_code=500,
             detail=(
                 f"Signal scan error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# POST GENERATOR
+# =========================================================
+
+@router.get("/post/generate")
+async def generate_post(
+    symbol: str = Query(
+        ...,
+        description=(
+            "Coin name or USDT pair. "
+            "Examples: BTC or BTCUSDT"
+        ),
+    ),
+    market: str = Query(
+        default="futures",
+        description=(
+            "futures or spot"
+        ),
+    ),
+) -> Dict[str, Any]:
+    """
+    Analyze the selected coin and generate
+    the agreed RR Trader community post.
+
+    IMPORTANT:
+
+    The post generator does not invent the
+    trading direction or levels.
+
+    It uses the actual MarketScanner result.
+    """
+
+    market = _validate_market(
+        market
+    )
+
+    symbol = _normalize_symbol(
+        symbol
+    )
+
+    try:
+
+        scanner = MarketScanner()
+
+        analysis = await scanner.scan_symbol(
+            symbol=symbol,
+            market=market,
+        )
+
+        if not isinstance(
+            analysis,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "Scanner returned "
+                "an invalid analysis."
+            )
+
+        if not analysis.get(
+            "success",
+            False,
+        ):
+
+            raise RuntimeError(
+                str(
+                    analysis.get(
+                        "error",
+                        "Coin analysis failed.",
+                    )
+                )
+            )
+
+        direction = str(
+            analysis.get(
+                "direction",
+                "NEUTRAL",
+            )
+        ).upper()
+
+        if direction not in {
+            "LONG",
+            "SHORT",
+        }:
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{symbol[:-4]} currently "
+                    f"does not have a valid "
+                    f"LONG/SHORT setup."
+                ),
+            )
+
+        generator = (
+            PostGenerator()
+        )
+
+        generated = generator.generate(
+            analysis
+        )
+
+        return {
+            "success": True,
+            "market": market,
+            "symbol": symbol,
+            "coin": symbol[:-4],
+            "analysis": _serialize(
+                analysis
+            ),
+            "post": _serialize(
+                generated
+            ),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Post generation error: "
                 f"{str(exc)}"
             ),
         ) from exc
