@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import httpx
 
-from app.config import Settings
+from ..config import Settings
 
 
 class BinanceClient:
@@ -16,27 +16,60 @@ class BinanceClient:
     - Binance Spot
     - Exchange information
     - 24h ticker
-    - Klines/candles
+    - Klines / candles
     - Order book
     - Funding rate
     - Open interest
+    - Open interest history
+    - Global long / short ratio
+    - Top trader long / short ratio
     - Recent liquidation orders
+    - Price
+    - Server time
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
-        self.settings = settings or Settings()
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+    ) -> None:
 
-        self.futures_url = self.settings.binance_futures_url.rstrip("/")
-        self.spot_url = self.settings.binance_spot_url.rstrip("/")
-        self.timeout = self.settings.request_timeout
+        self.settings = (
+            settings or Settings()
+        )
+
+        self.futures_url = (
+            self.settings.binance_futures_url
+            .rstrip("/")
+        )
+
+        self.spot_url = (
+            self.settings.binance_spot_url
+            .rstrip("/")
+        )
+
+        self.timeout = (
+            self.settings.request_timeout
+        )
 
         self.headers = {
             "User-Agent": "RR-Trader/1.0",
             "Accept": "application/json",
         }
 
-    def _base_url(self, market: str) -> str:
-        market = market.lower().strip()
+    # =========================================================
+    # BASE URL
+    # =========================================================
+
+    def _base_url(
+        self,
+        market: str,
+    ) -> str:
+
+        market = (
+            market
+            .lower()
+            .strip()
+        )
 
         if market == "futures":
             return self.futures_url
@@ -44,18 +77,28 @@ class BinanceClient:
         if market == "spot":
             return self.spot_url
 
-        raise ValueError("market must be 'spot' or 'futures'")
+        raise ValueError(
+            "market must be 'spot' or 'futures'"
+        )
+
+    # =========================================================
+    # HTTP REQUEST
+    # =========================================================
 
     async def _request(
         self,
         method: str,
         url: str,
-        params: Optional[dict[str, Any]] = None,
+        params: Optional[
+            dict[str, Any]
+        ] = None,
     ) -> Any:
+
         async with httpx.AsyncClient(
             timeout=self.timeout,
             headers=self.headers,
         ) as client:
+
             response = await client.request(
                 method=method,
                 url=url,
@@ -63,18 +106,27 @@ class BinanceClient:
             )
 
             response.raise_for_status()
+
             return response.json()
 
-    # ---------------------------------------------------------
+    # =========================================================
     # EXCHANGE INFORMATION
-    # ---------------------------------------------------------
+    # =========================================================
 
-    async def exchange_info(self, market: str = "futures") -> dict[str, Any]:
-        base = self._base_url(market)
+    async def exchange_info(
+        self,
+        market: str = "futures",
+    ) -> dict[str, Any]:
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/exchangeInfo"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/exchangeInfo"
         )
 
@@ -83,27 +135,34 @@ class BinanceClient:
             f"{base}{endpoint}",
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 24H TICKER
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def ticker_24h(
         self,
         market: str = "futures",
         symbol: Optional[str] = None,
     ) -> Any:
-        base = self._base_url(market)
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/ticker/24hr"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/ticker/24hr"
         )
 
-        params = {}
+        params: dict[str, Any] = {}
 
         if symbol:
-            params["symbol"] = symbol.upper()
+            params["symbol"] = (
+                symbol.upper()
+            )
 
         return await self._request(
             "GET",
@@ -111,9 +170,9 @@ class BinanceClient:
             params=params,
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # KLINES / CANDLES
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def klines(
         self,
@@ -122,11 +181,16 @@ class BinanceClient:
         limit: int = 200,
         market: str = "futures",
     ) -> list[list[Any]]:
-        base = self._base_url(market)
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/klines"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/klines"
         )
 
@@ -142,9 +206,9 @@ class BinanceClient:
             params=params,
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # ORDER BOOK / DEPTH
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def depth(
         self,
@@ -152,11 +216,16 @@ class BinanceClient:
         limit: int = 100,
         market: str = "futures",
     ) -> dict[str, Any]:
-        base = self._base_url(market)
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/depth"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/depth"
         )
 
@@ -171,34 +240,34 @@ class BinanceClient:
             params=params,
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # FUTURES FUNDING RATE
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def funding_rate(
         self,
         symbol: str,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        base = self.futures_url
 
         return await self._request(
             "GET",
-            f"{base}/fapi/v1/fundingRate",
+            f"{self.futures_url}/fapi/v1/fundingRate",
             params={
                 "symbol": symbol.upper(),
                 "limit": limit,
             },
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # FUTURES OPEN INTEREST
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def open_interest(
         self,
         symbol: str,
     ) -> dict[str, Any]:
+
         return await self._request(
             "GET",
             f"{self.futures_url}/fapi/v1/openInterest",
@@ -207,9 +276,9 @@ class BinanceClient:
             },
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # FUTURES OPEN INTEREST HISTORY
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def open_interest_history(
         self,
@@ -217,6 +286,7 @@ class BinanceClient:
         period: str = "5m",
         limit: int = 30,
     ) -> list[dict[str, Any]]:
+
         return await self._request(
             "GET",
             f"{self.futures_url}/futures/data/openInterestHist",
@@ -227,9 +297,9 @@ class BinanceClient:
             },
         )
 
-    # ---------------------------------------------------------
-    # FUTURES LONG / SHORT RATIO
-    # ---------------------------------------------------------
+    # =========================================================
+    # GLOBAL LONG / SHORT RATIO
+    # =========================================================
 
     async def global_long_short_ratio(
         self,
@@ -237,9 +307,14 @@ class BinanceClient:
         period: str = "5m",
         limit: int = 30,
     ) -> list[dict[str, Any]]:
+
         return await self._request(
             "GET",
-            f"{self.futures_url}/futures/data/globalLongShortAccountRatio",
+            (
+                f"{self.futures_url}"
+                "/futures/data/"
+                "globalLongShortAccountRatio"
+            ),
             params={
                 "symbol": symbol.upper(),
                 "period": period,
@@ -247,9 +322,9 @@ class BinanceClient:
             },
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # TOP TRADER LONG / SHORT RATIO
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def top_trader_long_short_ratio(
         self,
@@ -257,9 +332,14 @@ class BinanceClient:
         period: str = "5m",
         limit: int = 30,
     ) -> list[dict[str, Any]]:
+
         return await self._request(
             "GET",
-            f"{self.futures_url}/futures/data/topLongShortAccountRatio",
+            (
+                f"{self.futures_url}"
+                "/futures/data/"
+                "topLongShortAccountRatio"
+            ),
             params={
                 "symbol": symbol.upper(),
                 "period": period,
@@ -267,21 +347,24 @@ class BinanceClient:
             },
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # RECENT LIQUIDATION ORDERS
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def liquidation_orders(
         self,
         symbol: Optional[str] = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        params = {
+
+        params: dict[str, Any] = {
             "limit": limit,
         }
 
         if symbol:
-            params["symbol"] = symbol.upper()
+            params["symbol"] = (
+                symbol.upper()
+            )
 
         return await self._request(
             "GET",
@@ -289,20 +372,25 @@ class BinanceClient:
             params=params,
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # PRICE
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def price(
         self,
         symbol: str,
         market: str = "futures",
     ) -> dict[str, Any]:
-        base = self._base_url(market)
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/ticker/price"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/ticker/price"
         )
 
@@ -314,19 +402,24 @@ class BinanceClient:
             },
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # SERVER TIME
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def server_time(
         self,
         market: str = "futures",
     ) -> dict[str, Any]:
-        base = self._base_url(market)
+
+        market = market.lower()
+
+        base = self._base_url(
+            market
+        )
 
         endpoint = (
             "/fapi/v1/time"
-            if market.lower() == "futures"
+            if market == "futures"
             else "/api/v3/time"
         )
 
@@ -335,15 +428,18 @@ class BinanceClient:
             f"{base}{endpoint}",
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # CLOSE CLIENT
-    # ---------------------------------------------------------
+    # =========================================================
 
     async def close(self) -> None:
         """
-        Reserved for future persistent HTTP client support.
+        Reserved for future persistent HTTP
+        client support.
         """
         return None
 
 
-__all__ = ["BinanceClient"]
+__all__ = [
+    "BinanceClient",
+]
