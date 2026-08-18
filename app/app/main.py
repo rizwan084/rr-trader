@@ -12,12 +12,13 @@ from app.app.api.routes import router as api_router
 from app.app.api.trade_routes import router as trade_api_router
 from app.app.clients.binance import BinanceClient
 from app.app.services.scanner import MarketScanner
+from app.app.services.trade_engine import default_trade_engine
 
 
 app = FastAPI(
     title="RR Trader Live Scanner",
     description="AI-powered Binance Spot and Futures market scanner",
-    version="4.1.0",
+    version="4.3.0",
 )
 
 
@@ -90,6 +91,7 @@ _auto_state: Dict[str, Any] = {
     "market": "futures",
     "universe": [],
     "signals": [],
+    "trade_evaluations": [],
     "scanned": 0,
     "deep_analyzed": 0,
 }
@@ -320,7 +322,7 @@ async def _auto_scan_cycle() -> None:
     One background scan cycle.
 
     1. Build a 150-symbol cheap universe.
-    2. Deep-analyze top 5 only.
+    2. Deep-analyze top 1 only.
     3. Keep 90%+ signals.
     """
 
@@ -355,6 +357,10 @@ async def _auto_scan_cycle() -> None:
         )
 
         signals: List[
+            Dict[str, Any]
+        ] = []
+
+        trade_evaluations: List[
             Dict[str, Any]
         ] = []
 
@@ -400,6 +406,64 @@ async def _auto_scan_cycle() -> None:
                     )
                 ).upper()
 
+                # Run the strict 24-point trade gate on every
+                # deep analysis. This is still PAPER-TRADING only;
+                # no live order is placed here.
+                try:
+                    trade_decision = (
+                        default_trade_engine
+                        .evaluate_trade(
+                            analysis
+                        )
+                    )
+                except Exception as trade_exc:
+                    trade_decision = {
+                        "decision": "NO_TRADE",
+                        "trade_score": 0.0,
+                        "reason": str(trade_exc),
+                    }
+
+                trade_record = {
+                    "symbol": symbol,
+                    "coin": symbol[:-4],
+                    "direction": direction,
+                    "scanner_confidence": confidence,
+                    "candidate_score": candidate.get(
+                        "candidate_score",
+                        0,
+                    ),
+                    "decision": trade_decision.get(
+                        "decision",
+                        "NO_TRADE",
+                    ),
+                    "trade_score": _safe_float(
+                        trade_decision.get(
+                            "trade_score",
+                            0,
+                        )
+                    ),
+                    "passed_confirmations": trade_decision.get(
+                        "passed_confirmations",
+                        0,
+                    ),
+                    "total_confirmations": trade_decision.get(
+                        "total_confirmations",
+                        24,
+                    ),
+                    "critical_failures": trade_decision.get(
+                        "critical_failures",
+                        [],
+                    ),
+                    "reasons": trade_decision.get(
+                        "reasons",
+                        [],
+                    ),
+                }
+
+                trade_evaluations.append(
+                    trade_record
+                )
+
                 if (
                     direction
                     in {
@@ -425,6 +489,10 @@ async def _auto_scan_cycle() -> None:
                     ] = _confidence_level(
                         confidence
                     )
+
+                    enriched[
+                        "trade_decision"
+                    ] = trade_decision
 
                     signals.append(
                         enriched
@@ -456,6 +524,10 @@ async def _auto_scan_cycle() -> None:
         ] = signals
 
         _auto_state[
+            "trade_evaluations"
+        ] = trade_evaluations
+
+        _auto_state[
             "deep_analyzed"
         ] = len(
             deep_candidates
@@ -470,6 +542,7 @@ async def _auto_scan_cycle() -> None:
         # Release temporary deep-analysis objects
         # before the next 60-second cycle.
         del signals
+        del trade_evaluations
         del deep_candidates
         del universe
 
@@ -925,6 +998,33 @@ async def auto_candidates(
 
 
 # =========================================================
+# AUTO TRADE-GATE API
+# =========================================================
+
+@app.get(
+    "/api/auto/trades"
+)
+async def auto_trade_evaluations() -> Dict[
+    str,
+    Any,
+]:
+
+    return {
+        "success": True,
+        "market": "futures",
+        "count": len(
+            _auto_state["trade_evaluations"]
+        ),
+        "trade_evaluations": _auto_state[
+            "trade_evaluations"
+        ],
+        "last_scan": _auto_state[
+            "last_scan"
+        ],
+    }
+
+
+# =========================================================
 # ROOT
 # =========================================================
 
@@ -934,7 +1034,7 @@ async def root():
     return {
         "app": "RR Trader Live Scanner",
         "status": "online",
-        "version": "4.1.0",
+        "version": "4.3.0",
         "markets": [
             "futures",
             "spot",
@@ -946,6 +1046,10 @@ async def root():
         "post_api": (
             "/api/post/generate"
         ),
+        "trade_api": (
+            "/api/trade/status"
+        ),
+        "chart": "TradingView Advanced Chart",
         "message": (
             "RR Trader backend is working"
         ),
@@ -1733,6 +1837,234 @@ DASHBOARD_HTML = r"""
                 );
         }
 
+        .trade-panel {
+
+            display: grid;
+
+            grid-template-columns:
+                repeat(
+                    4,
+                    1fr
+                );
+
+            gap: 10px;
+
+            margin-top: 14px;
+        }
+
+        .trade-stat {
+
+            padding: 12px;
+
+            border-radius: 12px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.04
+                );
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.06
+                );
+        }
+
+        .trade-stat-label {
+
+            color: #718099;
+
+            font-size: 9px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing: 0.06em;
+        }
+
+        .trade-stat-value {
+
+            margin-top: 5px;
+
+            font-size: 14px;
+
+            font-weight: 900;
+        }
+
+        .decision-execute {
+            color: #00e676;
+        }
+
+        .decision-watch {
+            color: #ffd54f;
+        }
+
+        .decision-no-trade {
+            color: #ff6b6b;
+        }
+
+        .chart-card {
+
+            padding: 0;
+
+            overflow: hidden;
+        }
+
+        .chart-toolbar {
+
+            display: flex;
+
+            flex-wrap: wrap;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            gap: 10px;
+
+            padding: 13px 16px;
+
+            border-bottom:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.06
+                );
+        }
+
+        .chart-intervals {
+
+            display: flex;
+
+            gap: 6px;
+
+            flex-wrap: wrap;
+        }
+
+        .chart-intervals button {
+
+            padding:
+                7px 10px;
+
+            font-size: 10px;
+
+            box-shadow: none;
+        }
+
+        .chart-intervals button.active {
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #00bdf7,
+                    #5c52ff
+                );
+        }
+
+        .chart-container {
+
+            height: 620px;
+
+            width: 100%;
+        }
+
+        .chart-levels {
+
+            display: grid;
+
+            grid-template-columns:
+                repeat(
+                    5,
+                    1fr
+                );
+
+            gap: 8px;
+
+            padding: 12px 16px 16px;
+        }
+
+        .chart-level {
+
+            padding: 9px 10px;
+
+            border-radius: 10px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.035
+                );
+        }
+
+        .chart-level-label {
+
+            color: #738097;
+
+            font-size: 9px;
+        }
+
+        .chart-level-value {
+
+            margin-top: 4px;
+
+            font-size: 12px;
+
+            font-weight: 850;
+        }
+
+        @media (
+            max-width: 1000px
+        ) {
+
+            .trade-panel {
+
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
+                    );
+            }
+
+            .chart-levels {
+
+                grid-template-columns:
+                    repeat(
+                        3,
+                        1fr
+                    );
+            }
+
+            .chart-container {
+                height: 520px;
+            }
+        }
+
+        @media (
+            max-width: 620px
+        ) {
+
+            .trade-panel,
+            .chart-levels {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+            .chart-container {
+                height: 440px;
+            }
+        }
+
         textarea {
 
             font-family:
@@ -2183,6 +2515,204 @@ DASHBOARD_HTML = r"""
     </section>
 
 
+    <!-- TRADE GATE -->
+
+    <div class="section-title">
+
+        <h2>
+            24-Point Trade Gate
+        </h2>
+
+        <span>
+            Paper mode • no live orders
+        </span>
+
+    </div>
+
+
+    <section
+        id="tradeGate"
+        class="card"
+        style="padding:18px; margin-bottom:20px;"
+    >
+
+        <div class="empty">
+            Analyze a coin to evaluate the full trade gate.
+        </div>
+
+    </section>
+
+
+    <!-- TRADINGVIEW CHART -->
+
+    <div class="section-title">
+
+        <h2>
+            TradingView Chart
+        </h2>
+
+        <span>
+            Draw • edit • analyze
+        </span>
+
+    </div>
+
+
+    <section class="card chart-card">
+
+        <div class="chart-toolbar">
+
+            <div>
+
+                <strong id="chartSymbolLabel">
+                    Select a coin
+                </strong>
+
+                <div class="updated" style="margin-top:4px;">
+                    TradingView Advanced Chart
+                </div>
+
+            </div>
+
+            <div class="chart-intervals">
+
+                <button
+                    class="btn-secondary chart-interval active"
+                    data-interval="5"
+                    onclick="setChartInterval('5', this)"
+                >
+                    5m
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="15"
+                    onclick="setChartInterval('15', this)"
+                >
+                    15m
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="60"
+                    onclick="setChartInterval('60', this)"
+                >
+                    1h
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="240"
+                    onclick="setChartInterval('240', this)"
+                >
+                    4h
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <div
+            id="tradingviewChart"
+            class="chart-container"
+        >
+
+            <div class="empty">
+                Search and analyze a Futures coin to load its chart.
+            </div>
+
+        </div>
+
+
+        <div class="chart-levels">
+
+            <div class="chart-level">
+                <div class="chart-level-label">ENTRY</div>
+                <div class="chart-level-value" id="chartEntry">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">STOP LOSS</div>
+                <div class="chart-level-value" id="chartSL">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP1</div>
+                <div class="chart-level-value" id="chartTP1">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP2</div>
+                <div class="chart-level-value" id="chartTP2">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP3</div>
+                <div class="chart-level-value" id="chartTP3">—</div>
+            </div>
+
+        </div>
+
+        <div
+            class="updated"
+            style="padding:0 16px 15px;"
+        >
+            Use the TradingView drawing toolbar to manually add or edit support,
+            resistance, entry, SL and TP levels on the chart.
+        </div>
+
+    </section>
+
+
+    <!-- PAPER TRADING STATUS -->
+
+    <div class="section-title">
+
+        <h2>
+            Paper Trading Engine
+        </h2>
+
+        <span>
+            No real orders
+        </span>
+
+    </div>
+
+
+    <section
+        id="paperStatus"
+        class="card"
+        style="padding:18px; margin-bottom:20px;"
+    >
+
+        <div class="trade-panel">
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Mode</div>
+                <div class="trade-stat-value" id="paperMode">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Balance</div>
+                <div class="trade-stat-value" id="paperBalance">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Open Positions</div>
+                <div class="trade-stat-value" id="paperPositions">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Daily PnL</div>
+                <div class="trade-stat-value" id="paperPnl">—</div>
+            </div>
+
+        </div>
+
+    </section>
+
+
     <!-- POST GENERATOR -->
 
     <div class="section-title">
@@ -2282,6 +2812,10 @@ Your generated Binance community post will appear here...
 let allSignals = [];
 let searchTimer = null;
 let autoPollTimer = null;
+let selectedAnalysisData = null;
+let selectedCoin = "";
+let selectedMarket = "futures";
+let currentChartInterval = "5";
 
 
 // =========================================================
@@ -2725,9 +3259,22 @@ async function analyzeSearchCoin() {
             result.analysis ||
             result;
 
+        selectedAnalysisData = data;
+        selectedCoin = coin;
+        selectedMarket = "futures";
+
         renderSelectedAnalysis(
             data
         );
+
+        updateChartLevels(data);
+        renderTradingViewChart(
+            coin,
+            selectedMarket,
+            currentChartInterval
+        );
+
+        await evaluateSelectedTrade(data);
 
     } catch (err) {
 
@@ -2990,6 +3537,774 @@ function renderSelectedAnalysis(
 
         </div>
         `;
+}
+
+
+// =========================================================
+// TRADE GATE + CHART
+// =========================================================
+
+function decisionClass(
+    decision
+) {
+
+    const normalized =
+        String(
+            decision || ""
+        ).toUpperCase();
+
+    if (
+        normalized ===
+        "EXECUTE_CANDIDATE"
+    ) {
+
+        return "decision-execute";
+
+    }
+
+    if (
+        normalized ===
+        "WATCH"
+    ) {
+
+        return "decision-watch";
+
+    }
+
+    return "decision-no-trade";
+}
+
+
+function renderTradeGate(
+    result
+) {
+
+    const container =
+        document.getElementById(
+            "tradeGate"
+        );
+
+    if (!result) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                No trade-gate result available.
+            </div>
+            `;
+
+        return;
+
+    }
+
+    const decision =
+        result.decision ||
+        "NO_TRADE";
+
+    const score =
+        number(
+            result.trade_score
+        );
+
+    const scannerConfidence =
+        number(
+            result.scanner_confidence
+        );
+
+    const passed =
+        number(
+            result.passed_confirmations
+        );
+
+    const total =
+        number(
+            result.total_confirmations ||
+            24
+        );
+
+    const criticalFailures =
+        result.critical_failures ||
+        [];
+
+    const decisionLabel =
+        decision ===
+        "EXECUTE_CANDIDATE"
+            ? "EXECUTE CANDIDATE"
+            : decision ===
+              "WATCH"
+                ? "WATCH"
+                : "NO TRADE";
+
+    const details =
+        criticalFailures.length
+            ? criticalFailures
+                .slice(
+                    0,
+                    6
+                )
+                .map(
+                    item =>
+                        `
+                        <span class="badge">
+                            ${escapeHtml(
+                                item
+                            )}
+                        </span>
+                        `
+                )
+                .join("")
+            : `
+                <span class="badge">
+                    No critical failures
+                </span>
+            `;
+
+    container.innerHTML =
+        `
+        <div>
+
+            <div
+                style="
+                    display:flex;
+                    justify-content:
+                        space-between;
+                    align-items:center;
+                    gap:10px;
+                    flex-wrap:wrap;
+                "
+            >
+
+                <div>
+
+                    <div
+                        style="
+                            font-size:19px;
+                            font-weight:900;
+                        "
+                    >
+                        $${escapeHtml(
+                            selectedCoin
+                        )}
+                    </div>
+
+                    <div
+                        class="
+                            ${decisionClass(
+                                decision
+                            )}
+                        "
+                        style="
+                            font-size:14px;
+                            font-weight:900;
+                            margin-top:5px;
+                        "
+                    >
+                        ${decisionLabel}
+                    </div>
+
+                </div>
+
+                <div
+                    class="
+                        confidence
+                        ${confidenceClass(
+                            score
+                        )}
+                    "
+                >
+                    ${score.toFixed(1)}%
+                </div>
+
+            </div>
+
+
+            <div class="trade-panel">
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Trade Quality
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${score.toFixed(1)}%
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Scanner Confidence
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${scannerConfidence.toFixed(1)}%
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Confirmations
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${passed}/${total}
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Mode
+                    </div>
+
+                    <div class="trade-stat-value">
+                        PAPER
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div
+                class="signal-footer"
+                style="margin-top:14px;"
+            >
+
+                ${details}
+
+            </div>
+
+
+            <div
+                class="updated"
+                style="
+                    margin-top:12px;
+                "
+            >
+                95%+ is an execution candidate only when the
+                programmed critical gates pass. It does not
+                guarantee profit.
+            </div>
+
+        </div>
+        `;
+
+}
+
+
+async function evaluateSelectedTrade(
+    analysis
+) {
+
+    const container =
+        document.getElementById(
+            "tradeGate"
+        );
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/trade/evaluate",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+                    body: JSON.stringify(
+                        analysis
+                    )
+                }
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            throw new Error(
+                data.detail ||
+                "Trade evaluation failed."
+            );
+
+        }
+
+        renderTradeGate(
+            data.result
+        );
+
+    } catch (err) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                ${escapeHtml(
+                    err.message ||
+                    "Trade gate unavailable."
+                )}
+            </div>
+            `;
+
+    }
+}
+
+
+function updateChartLevels(
+    data
+) {
+
+    document.getElementById(
+        "chartEntry"
+    ).textContent =
+        money(
+            data.entry
+        );
+
+    document.getElementById(
+        "chartSL"
+    ).textContent =
+        money(
+            data.stop_loss
+        );
+
+    document.getElementById(
+        "chartTP1"
+    ).textContent =
+        money(
+            data.tp1
+        );
+
+    document.getElementById(
+        "chartTP2"
+    ).textContent =
+        money(
+            data.tp2
+        );
+
+    document.getElementById(
+        "chartTP3"
+    ).textContent =
+        money(
+            data.tp3
+        );
+
+}
+
+
+function tradingViewSymbol(
+    coin,
+    market
+) {
+
+    const clean =
+        String(
+            coin || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
+
+    if (
+        market ===
+        "futures"
+    ) {
+
+        return `BINANCE:${clean}USDT.P`;
+
+    }
+
+    return `BINANCE:${clean}USDT`;
+}
+
+
+function renderTradingViewChart(
+    coin,
+    market = "futures",
+    interval = "5"
+) {
+
+    const container =
+        document.getElementById(
+            "tradingviewChart"
+        );
+
+    const label =
+        document.getElementById(
+            "chartSymbolLabel"
+        );
+
+    if (!container) {
+        return;
+    }
+
+    const clean =
+        String(
+            coin || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
+
+    if (!clean) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                Select a coin to load TradingView.
+            </div>
+            `;
+
+        return;
+
+    }
+
+    label.textContent =
+        `$${clean}`;
+
+    container.innerHTML =
+        `
+        <div
+            class="tradingview-widget-container"
+            style="
+                height:100%;
+                width:100%;
+            "
+        >
+
+            <div
+                class="tradingview-widget-container__widget"
+                style="
+                    height:100%;
+                    width:100%;
+                "
+            ></div>
+
+            <div
+                class="tradingview-widget-copyright"
+                style="
+                    padding:4px 8px;
+                    font-size:9px;
+                "
+            >
+                <a
+                    href="https://www.tradingview.com/"
+                    rel="noopener nofollow"
+                    target="_blank"
+                >
+                    TradingView
+                </a>
+            </div>
+
+        </div>
+        `;
+
+    const widgetContainer =
+        container.querySelector(
+            ".tradingview-widget-container"
+        );
+
+    const widget =
+        document.createElement(
+            "script"
+        );
+
+    widget.type =
+        "text/javascript";
+
+    widget.src =
+        "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+
+    widget.async =
+        true;
+
+    const widgetConfig = {
+
+        autosize: true,
+
+        symbol:
+            tradingViewSymbol(
+                clean,
+                market
+            ),
+
+        interval:
+            interval,
+
+        timezone:
+            "exchange",
+
+        theme:
+            "dark",
+
+        style:
+            "1",
+
+        locale:
+            "en",
+
+        allow_symbol_change:
+            true,
+
+        hide_side_toolbar:
+            false,
+
+        hide_top_toolbar:
+            false,
+
+        hide_legend:
+            false,
+
+        hide_volume:
+            false,
+
+        save_image:
+            true,
+
+        withdateranges:
+            true,
+
+        hotlist:
+            false,
+
+        calendar:
+            false,
+
+        details:
+            false,
+
+        studies: [
+            "Moving Average Exponential@tv-basicstudies",
+            "Moving Average Exponential@tv-basicstudies",
+            "RSI@tv-basicstudies"
+        ],
+
+        support_host:
+            "https://www.tradingview.com"
+
+    };
+
+    widget.innerHTML =
+        JSON.stringify(
+            widgetConfig
+        );
+
+    widgetContainer.appendChild(
+        widget
+    );
+
+
+    document
+        .querySelectorAll(
+            ".chart-interval"
+        )
+        .forEach(
+            button => {
+
+                button.classList.toggle(
+                    "active",
+                    button.dataset.interval ===
+                        String(
+                            interval
+                        )
+                );
+
+            }
+        );
+}
+
+
+function setChartInterval(
+    interval,
+    button
+) {
+
+    currentChartInterval =
+        String(
+            interval
+        );
+
+    document
+        .querySelectorAll(
+            ".chart-interval"
+        )
+        .forEach(
+            item => {
+                item.classList.remove(
+                    "active"
+                );
+            }
+        );
+
+    if (button) {
+
+        button.classList.add(
+            "active"
+        );
+
+    }
+
+    if (
+        selectedCoin
+    ) {
+
+        renderTradingViewChart(
+            selectedCoin,
+            selectedMarket,
+            currentChartInterval
+        );
+
+    }
+
+}
+
+
+async function refreshPaperStatus() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/trade/status"
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            return;
+
+        }
+
+        const engine =
+            data.engine ||
+            {};
+
+        document.getElementById(
+            "paperMode"
+        ).textContent =
+            String(
+                engine.mode ||
+                "paper"
+            ).toUpperCase();
+
+        document.getElementById(
+            "paperBalance"
+        ).textContent =
+            `$${number(
+                engine.balance
+            ).toFixed(2)}`;
+
+        document.getElementById(
+            "paperPositions"
+        ).textContent =
+            `${number(
+                engine.open_positions
+            )} / ${number(
+                engine.max_open_positions
+            )}`;
+
+        document.getElementById(
+            "paperPnl"
+        ).textContent =
+            `$${number(
+                engine.daily_realized_pnl
+            ).toFixed(2)}`;
+
+    } catch (err) {
+
+        // Keep dashboard alive if the paper
+        // trading API is temporarily unavailable.
+
+    }
+
+}
+
+
+async function refreshAutoTradeGate() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/auto/trades"
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            return;
+
+        }
+
+        const evaluations =
+            data.trade_evaluations ||
+            [];
+
+        const best =
+            evaluations
+                .slice()
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        number(
+                            b.trade_score
+                        )
+                        -
+                        number(
+                            a.trade_score
+                        )
+                )[0];
+
+        if (
+            best &&
+            selectedCoin
+            &&
+            best.coin ===
+                selectedCoin
+        ) {
+
+            renderTradeGate(
+                best
+            );
+
+        }
+
+    } catch (err) {
+
+        // Ignore background status failures.
+
+    }
+
 }
 
 
@@ -3457,6 +4772,10 @@ async function refreshAutoSignals() {
     refreshAutoStatus();
 
     refreshCandidates();
+
+    refreshAutoTradeGate();
+
+    refreshPaperStatus();
 }
 
 
