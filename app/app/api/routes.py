@@ -1,3 +1,5 @@
+from typing import Dict
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -15,11 +17,6 @@ router = APIRouter()
 # =========================================================
 
 def _serialize(value: Any) -> Any:
-    """
-    Convert Pydantic models, dictionaries, lists and tuples
-    into JSON-compatible data.
-    """
-
     if value is None:
         return None
 
@@ -45,7 +42,7 @@ def _serialize(value: Any) -> Any:
 
 
 # =========================================================
-# MARKET VALIDATION
+# MARKET / SYMBOL HELPERS
 # =========================================================
 
 def _validate_market(
@@ -73,15 +70,21 @@ def _validate_market(
     return market
 
 
-# =========================================================
-# SYMBOL NORMALIZATION
-# =========================================================
-
 def _normalize_symbol(
     symbol: str,
 ) -> str:
+    """
+    Accept either:
+        BTC
+        BTCUSDT
+        BTC/USDT
+        BTC-USDT
 
-    symbol = (
+    and normalize to:
+        BTCUSDT
+    """
+
+    cleaned = (
         symbol
         .upper()
         .replace("/", "")
@@ -89,16 +92,18 @@ def _normalize_symbol(
         .strip()
     )
 
-    if not symbol.endswith("USDT"):
+    if not cleaned:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Only USDT trading pairs "
-                "are currently supported."
-            ),
+            detail="Symbol is required.",
         )
 
-    return symbol
+    if not cleaned.endswith("USDT"):
+        cleaned = (
+            f"{cleaned}USDT"
+        )
+
+    return cleaned
 
 
 # =========================================================
@@ -110,25 +115,12 @@ async def _run_scanner(
     market: str = "futures",
     max_candidates: Optional[int] = None,
 ) -> Any:
-    """
-    Run RR Trader MarketScanner.
-
-    Supports:
-    - Binance Futures
-    - Binance Spot
-    - Symbol analysis
-    - General market scanning
-    """
-
-    scanner = MarketScanner()
 
     market = _validate_market(
         market
     )
 
-    # -----------------------------------------------------
-    # SINGLE SYMBOL ANALYSIS
-    # -----------------------------------------------------
+    scanner = MarketScanner()
 
     if symbol:
 
@@ -136,26 +128,10 @@ async def _run_scanner(
             symbol
         )
 
-        result = await scanner.scan_symbol(
+        return await scanner.scan_symbol(
             symbol=symbol,
             market=market,
         )
-
-        return result
-
-    # -----------------------------------------------------
-    # GENERAL MARKET SCAN
-    # -----------------------------------------------------
-
-    # -----------------------------------------------------
-    # IMPORTANT MEMORY PROTECTION
-    #
-    # Render has previously killed the process with
-    # status 137 when too much scanning work was requested.
-    #
-    # The scanner is now limited to a maximum of 5 symbols
-    # through the API layer.
-    # -----------------------------------------------------
 
     safe_max_candidates = (
         5
@@ -169,12 +145,10 @@ async def _run_scanner(
         )
     )
 
-    result = await scanner.scan(
+    return await scanner.scan(
         market=market,
         max_candidates=safe_max_candidates,
     )
-
-    return result
 
 
 # =========================================================
@@ -188,17 +162,10 @@ async def api_root() -> dict[str, Any]:
         "success": True,
         "app": "RR Trader",
         "status": "online",
-        "version": "2.1.0",
+        "version": "4.0.0",
         "markets": [
             "futures",
             "spot",
-        ],
-        "endpoints": [
-            "/api/health",
-            "/api/markets",
-            "/api/scan",
-            "/api/analyze",
-            "/api/signals",
         ],
         "timeframes": [
             "5m",
@@ -206,12 +173,25 @@ async def api_root() -> dict[str, Any]:
             "1h",
             "4h",
         ],
-        "message": "RR Trader API is running",
+        "endpoints": [
+            "/api/health",
+            "/api/markets",
+            "/api/scan",
+            "/api/analyze",
+            "/api/signals",
+            "/api/search",
+            "/api/auto/status",
+            "/api/auto/signals",
+            "/api/auto/candidates",
+        ],
+        "message": (
+            "RR Trader API is running"
+        ),
     }
 
 
 # =========================================================
-# API HEALTH
+# HEALTH
 # =========================================================
 
 @router.get("/health")
@@ -225,7 +205,7 @@ async def health() -> dict[str, Any]:
 
 
 # =========================================================
-# SUPPORTED MARKETS
+# MARKETS
 # =========================================================
 
 @router.get("/markets")
@@ -249,31 +229,21 @@ async def supported_markets() -> dict[str, Any]:
 
 
 # =========================================================
-# MARKET SCAN
+# SCAN
 # =========================================================
 
 @router.get("/scan")
 async def scan_market(
     market: str = Query(
         default="futures",
-        description=(
-            "Binance market: futures or spot"
-        ),
     ),
     symbol: Optional[str] = Query(
         default=None,
-        description=(
-            "Optional symbol, for example BTCUSDT"
-        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
-        description=(
-            "Maximum number of coins to scan. "
-            "Hard limited to 5 for Render memory safety."
-        ),
     ),
 ) -> dict[str, Any]:
 
@@ -281,7 +251,7 @@ async def scan_market(
         market
     )
 
-    normalized_symbol: Optional[str] = None
+    normalized_symbol = None
 
     if symbol:
         normalized_symbol = (
@@ -325,7 +295,7 @@ async def scan_market(
 
 
 # =========================================================
-# SYMBOL ANALYSIS
+# ANALYZE
 # =========================================================
 
 @router.get("/analyze")
@@ -333,14 +303,12 @@ async def analyze_symbol(
     symbol: str = Query(
         ...,
         description=(
-            "Trading symbol, for example BTCUSDT"
+            "Coin name or USDT pair, "
+            "for example BTC or BTCUSDT"
         ),
     ),
     market: str = Query(
         default="futures",
-        description=(
-            "Binance market: futures or spot"
-        ),
     ),
 ) -> dict[str, Any]:
 
@@ -362,6 +330,7 @@ async def analyze_symbol(
         return {
             "success": True,
             "symbol": symbol,
+            "coin": symbol[:-4],
             "market": market,
             "data": _serialize(
                 result
@@ -382,33 +351,24 @@ async def analyze_symbol(
 
 
 # =========================================================
-# HIGH-CONFIDENCE SIGNALS
+# HIGH CONFIDENCE SIGNALS
 # =========================================================
 
 @router.get("/signals")
 async def high_confidence_signals(
     market: str = Query(
         default="futures",
-        description=(
-            "Binance market: futures or spot"
-        ),
     ),
     min_confidence: float = Query(
         default=90.0,
         ge=0.0,
         le=100.0,
-        description=(
-            "Minimum confidence percentage."
-        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
-        description=(
-            "Maximum coins to scan. "
-            "Hard limited to 5 for memory safety."
-        ),
+    ),
 ) -> dict[str, Any]:
 
     market = _validate_market(
@@ -416,13 +376,6 @@ async def high_confidence_signals(
     )
 
     try:
-
-        # -----------------------------------------------------
-        # Run a memory-safe market scan.
-        #
-        # Even if the frontend sends 30, the API never allows
-        # more than 5 candidates in one request.
-        # -----------------------------------------------------
 
         result = await _run_scanner(
             market=market,
@@ -448,11 +401,9 @@ async def high_confidence_signals(
         ):
             candidates = []
 
-        # -----------------------------------------------------
-        # Filter by requested confidence.
-        # -----------------------------------------------------
-
-        filtered = []
+        signals: list[
+            Dict[str, Any]
+        ] = []
 
         for item in candidates:
 
@@ -462,7 +413,11 @@ async def high_confidence_signals(
             ):
                 continue
 
-            confidence = 0.0
+            if not item.get(
+                "success",
+                False,
+            ):
+                continue
 
             try:
                 confidence = float(
@@ -477,17 +432,44 @@ async def high_confidence_signals(
             ):
                 confidence = 0.0
 
-            if confidence >= min_confidence:
+            direction = item.get(
+                "direction",
+                "NEUTRAL",
+            )
 
-                filtered.append(
+            if (
+                confidence >= min_confidence
+                and direction in {
+                    "LONG",
+                    "SHORT",
+                }
+            ):
+
+                enriched = dict(
                     item
                 )
 
-        # -----------------------------------------------------
-        # Sort strongest signals first.
-        # -----------------------------------------------------
+                if (
+                    "coin"
+                    not in enriched
+                ):
 
-        filtered.sort(
+                    enriched[
+                        "coin"
+                    ] = str(
+                        enriched.get(
+                            "symbol",
+                            "",
+                        )
+                    ).removesuffix(
+                        "USDT"
+                    )
+
+                signals.append(
+                    enriched
+                )
+
+        signals.sort(
             key=lambda item: float(
                 item.get(
                     "confidence",
@@ -497,101 +479,53 @@ async def high_confidence_signals(
             reverse=True,
         )
 
-        # -----------------------------------------------------
-        # Separate LONG and SHORT.
-        # -----------------------------------------------------
-
-        long_signals = [
-            item
-            for item in filtered
-            if item.get(
-                "direction"
-            ) == "LONG"
-        ]
-
-        short_signals = [
-            item
-            for item in filtered
-            if item.get(
-                "direction"
-            ) == "SHORT"
-        ]
-
-        # -----------------------------------------------------
-        # Count confidence tiers.
-        # -----------------------------------------------------
-
-        signals_90_plus = [
-            item
-            for item in filtered
-            if float(
-                item.get(
-                    "confidence",
-                    0,
-                )
-            ) >= 90
-        ]
-
-        signals_95_plus = [
-            item
-            for item in filtered
-            if float(
-                item.get(
-                    "confidence",
-                    0,
-                )
-            ) >= 95
-        ]
-
-        signals_99_plus = [
-            item
-            for item in filtered
-            if float(
-                item.get(
-                    "confidence",
-                    0,
-                )
-            ) >= 99
-        ]
-
         return {
             "success": True,
             "market": market,
-            "min_confidence": (
-                min_confidence
-            ),
-            "requested_candidates": (
-                max_candidates
-            ),
+            "min_confidence": min_confidence,
+            "requested_candidates": max_candidates,
             "safe_max_candidates": 5,
             "scanned": len(
                 candidates
             ),
-            "signals_found": len(
-                filtered
+            "signals_count": len(
+                signals
             ),
-            "signals_90_plus": len(
-                signals_90_plus
+            "signals_90_plus": sum(
+                1
+                for item in signals
+                if float(
+                    item.get(
+                        "confidence",
+                        0,
+                    )
+                ) >= 90
             ),
-            "signals_95_plus": len(
-                signals_95_plus
+            "signals_95_plus": sum(
+                1
+                for item in signals
+                if float(
+                    item.get(
+                        "confidence",
+                        0,
+                    )
+                ) >= 95
             ),
-            "signals_99_plus": len(
-                signals_99_plus
-            ),
-            "long_signals": len(
-                long_signals
-            ),
-            "short_signals": len(
-                short_signals
+            "signals_99_plus": sum(
+                1
+                for item in signals
+                if float(
+                    item.get(
+                        "confidence",
+                        0,
+                    )
+                ) >= 99
             ),
             "signals": _serialize(
-                filtered
+                signals
             ),
             "top_signals": _serialize(
-                filtered[
-                    :5
-                ]
+                signals[:5]
             ),
         }
 
@@ -603,15 +537,10 @@ async def high_confidence_signals(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Signal scan error: "
-                f"{str(exc)}"
+                f"Signal scan error: {str(exc)}"
             ),
         ) from exc
 
-
-# =========================================================
-# API EXPORT
-# =========================================================
 
 __all__ = [
     "router",
