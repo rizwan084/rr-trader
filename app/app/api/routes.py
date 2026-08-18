@@ -1,8 +1,6 @@
-from typing import Dict
-
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -17,6 +15,11 @@ router = APIRouter()
 # =========================================================
 
 def _serialize(value: Any) -> Any:
+    """
+    Convert Pydantic models, dictionaries, lists and tuples
+    into JSON-compatible data.
+    """
+
     if value is None:
         return None
 
@@ -75,12 +78,14 @@ def _normalize_symbol(
 ) -> str:
     """
     Accept either:
+
         BTC
         BTCUSDT
         BTC/USDT
         BTC-USDT
 
     and normalize to:
+
         BTCUSDT
     """
 
@@ -122,6 +127,10 @@ async def _run_scanner(
 
     scanner = MarketScanner()
 
+    # -----------------------------------------------------
+    # SINGLE SYMBOL
+    # -----------------------------------------------------
+
     if symbol:
 
         symbol = _normalize_symbol(
@@ -132,6 +141,13 @@ async def _run_scanner(
             symbol=symbol,
             market=market,
         )
+
+    # -----------------------------------------------------
+    # MARKET SCAN
+    # -----------------------------------------------------
+
+    # Render memory protection:
+    # never allow more than 5 deep-analysis candidates.
 
     safe_max_candidates = (
         5
@@ -162,7 +178,7 @@ async def api_root() -> dict[str, Any]:
         "success": True,
         "app": "RR Trader",
         "status": "online",
-        "version": "4.0.0",
+        "version": "4.0.1",
         "markets": [
             "futures",
             "spot",
@@ -236,14 +252,22 @@ async def supported_markets() -> dict[str, Any]:
 async def scan_market(
     market: str = Query(
         default="futures",
+        description="futures or spot",
     ),
     symbol: Optional[str] = Query(
         default=None,
+        description=(
+            "Coin name or USDT pair"
+        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
+        description=(
+            "Maximum deep-analysis "
+            "candidates"
+        ),
     ),
 ) -> dict[str, Any]:
 
@@ -254,6 +278,7 @@ async def scan_market(
     normalized_symbol = None
 
     if symbol:
+
         normalized_symbol = (
             _normalize_symbol(
                 symbol
@@ -303,12 +328,13 @@ async def analyze_symbol(
     symbol: str = Query(
         ...,
         description=(
-            "Coin name or USDT pair, "
-            "for example BTC or BTCUSDT"
+            "Coin name or USDT pair. "
+            "Examples: BTC or BTCUSDT"
         ),
     ),
     market: str = Query(
         default="futures",
+        description="futures or spot",
     ),
 ) -> dict[str, Any]:
 
@@ -358,16 +384,24 @@ async def analyze_symbol(
 async def high_confidence_signals(
     market: str = Query(
         default="futures",
+        description="futures or spot",
     ),
     min_confidence: float = Query(
         default=90.0,
         ge=0.0,
         le=100.0,
+        description=(
+            "Minimum confidence percentage"
+        ),
     ),
     max_candidates: int = Query(
         default=5,
         ge=1,
         le=5,
+        description=(
+            "Maximum deep-analysis "
+            "candidates"
+        ),
     ),
 ) -> dict[str, Any]:
 
@@ -420,16 +454,19 @@ async def high_confidence_signals(
                 continue
 
             try:
+
                 confidence = float(
                     item.get(
                         "confidence",
                         0,
                     )
                 )
+
             except (
                 TypeError,
                 ValueError,
             ):
+
                 confidence = 0.0
 
             direction = item.get(
@@ -465,9 +502,36 @@ async def high_confidence_signals(
                         "USDT"
                     )
 
+                # -------------------------------------------------
+                # Confidence level
+                # -------------------------------------------------
+
+                if confidence >= 99:
+                    level = "EXTREME"
+
+                elif confidence >= 95:
+                    level = "VERY HIGH"
+
+                elif confidence >= 90:
+                    level = "HIGH"
+
+                elif confidence >= 85:
+                    level = "WATCH"
+
+                else:
+                    level = "LOW"
+
+                enriched[
+                    "confidence_level"
+                ] = level
+
                 signals.append(
                     enriched
                 )
+
+        # -----------------------------------------------------
+        # SORT
+        # -----------------------------------------------------
 
         signals.sort(
             key=lambda item: float(
@@ -479,18 +543,30 @@ async def high_confidence_signals(
             reverse=True,
         )
 
+        # -----------------------------------------------------
+        # RESPONSE
+        # -----------------------------------------------------
+
         return {
             "success": True,
             "market": market,
-            "min_confidence": min_confidence,
-            "requested_candidates": max_candidates,
+            "min_confidence": (
+                min_confidence
+            ),
+            "requested_candidates": (
+                max_candidates
+            ),
+
             "safe_max_candidates": 5,
+
             "scanned": len(
                 candidates
             ),
+
             "signals_count": len(
                 signals
             ),
+
             "signals_90_plus": sum(
                 1
                 for item in signals
@@ -501,6 +577,7 @@ async def high_confidence_signals(
                     )
                 ) >= 90
             ),
+
             "signals_95_plus": sum(
                 1
                 for item in signals
@@ -511,6 +588,7 @@ async def high_confidence_signals(
                     )
                 ) >= 95
             ),
+
             "signals_99_plus": sum(
                 1
                 for item in signals
@@ -521,9 +599,27 @@ async def high_confidence_signals(
                     )
                 ) >= 99
             ),
+
+            "long_signals": sum(
+                1
+                for item in signals
+                if item.get(
+                    "direction"
+                ) == "LONG"
+            ),
+
+            "short_signals": sum(
+                1
+                for item in signals
+                if item.get(
+                    "direction"
+                ) == "SHORT"
+            ),
+
             "signals": _serialize(
                 signals
             ),
+
             "top_signals": _serialize(
                 signals[:5]
             ),
@@ -537,10 +633,15 @@ async def high_confidence_signals(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Signal scan error: {str(exc)}"
+                f"Signal scan error: "
+                f"{str(exc)}"
             ),
         ) from exc
 
+
+# =========================================================
+# EXPORT
+# =========================================================
 
 __all__ = [
     "router",
