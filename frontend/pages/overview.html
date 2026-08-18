@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader — Overview
+    </title>
+
+</head>
+
+
+<body>
+
+    <main>
+
+        <header>
+
+            <h1>
+                RR Trader Overview
+            </h1>
+
+            <p>
+                Live market intelligence and system overview.
+            </p>
+
+        </header>
+
+
+        <section>
+
+            <h2>
+                Market Intelligence
+            </h2>
+
+            <p>
+                Core analysis uses 15m, 1H and 4H.
+            </p>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Trade Opportunities
+            </h2>
+
+            <p>
+                High-quality opportunities will appear here
+                after the scanner and 24-point engine are live.
+            </p>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Risk Engine
+            </h2>
+
+            <p>
+                Position sizing, portfolio exposure and
+                execution safety will be shown here.
+            </p>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                System Status
+            </h2>
+
+            <div id="system-status">
+                Checking backend...
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <script>
+
+        async function loadStatus() {
+
+            const element =
+                document.getElementById(
+                    "system-status"
+                );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/health"
+                    );
+
+                const data =
+                    await response.json();
+
+                if (
+                    response.ok &&
+                    data.success
+                ) {
+
+                    element.textContent =
+                        "Backend Online — " +
+                        data.version;
+
+                } else {
+
+                    element.textContent =
+                        "Backend Error";
+
+                }
+
+            } catch (error) {
+
+                element.textContent =
+                    "Backend Offline";
+
+            }
+
+        }
+
+
+        loadStatus();
+
+    </script>
+
+</body>
+
+</html>
