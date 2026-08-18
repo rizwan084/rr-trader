@@ -15,17 +15,10 @@ from app.app.services.scanner import MarketScanner
 from app.app.services.trade_engine import default_trade_engine
 
 
-# =========================================================
-# APP
-# =========================================================
-
 app = FastAPI(
     title="RR Trader Live Scanner",
-    description=(
-        "RR Trader Futures scanner, "
-        "24-point trade gate and dashboard"
-    ),
-    version="5.0.0",
+    description="AI-powered Binance Spot and Futures market scanner",
+    version="4.3.0",
 )
 
 
@@ -37,7 +30,6 @@ def _safe_float(
     value: Any,
     default: float = 0.0,
 ) -> float:
-
     try:
         return float(value)
     except (
@@ -66,116 +58,59 @@ def _confidence_level(
     return "LOW"
 
 
-def _normalize_symbol(
-    symbol: str,
-) -> str:
-
-    cleaned = (
-        str(symbol or "")
-        .upper()
-        .replace("/", "")
-        .replace("-", "")
-        .strip()
+def _signal_sort_key(
+    item: Dict[str, Any],
+):
+    return _safe_float(
+        item.get(
+            "confidence",
+            0,
+        )
     )
 
-    if not cleaned:
-        return ""
-
-    if not cleaned.endswith("USDT"):
-        cleaned = f"{cleaned}USDT"
-
-    return cleaned
-
 
 # =========================================================
-# FULL FUTURES SCANNER CONFIG
-# =========================================================
-#
-# IMPORTANT
-# ---------
-# AUTO_UNIVERSE_SIZE = None
-# means:
-#
-# ALL active Binance Futures USDT perpetual contracts.
-#
-# AUTO_DEEP_ANALYSIS_BATCH controls how many expensive
-# full analyses happen per 60-second cycle.
-#
-# We intentionally keep this small to protect Render memory.
+# BACKGROUND AUTO SCANNER
 # =========================================================
 
 AUTO_SCAN_INTERVAL_SECONDS = 60
-
-AUTO_UNIVERSE_SIZE = None
-
-AUTO_DEEP_ANALYSIS_BATCH = 3
-
-
-# =========================================================
-# BACKGROUND SCANNER STATE
-# =========================================================
+AUTO_UNIVERSE_SIZE = 150
+AUTO_DEEP_ANALYSIS_SIZE = 1
 
 _auto_scanner_task: Optional[
     asyncio.Task
 ] = None
 
-
-_auto_binance = BinanceClient()
-
-_auto_scanner = MarketScanner()
-
-
 _auto_state: Dict[str, Any] = {
     "running": False,
-
     "last_scan": None,
-
-    "next_scan_in_seconds":
-        AUTO_SCAN_INTERVAL_SECONDS,
-
+    "next_scan_in_seconds": (
+        AUTO_SCAN_INTERVAL_SECONDS
+    ),
     "error": None,
-
     "market": "futures",
-
     "universe": [],
-
-    "results": {},
-
     "signals": [],
-
-    "scanned_universe": 0,
-
-    "scan_total": 0,
-
-    "completed_symbols": 0,
-
-    "scan_cursor": 0,
-
-    "deep_analyzed_last_batch": 0,
-
-    "trade_gate": {
-        "execute_candidates": 0,
-        "watch": 0,
-        "no_trade": 0,
-    },
+    "trade_evaluations": [],
+    "scanned": 0,
+    "deep_analyzed": 0,
 }
 
 
-# =========================================================
-# CANDIDATE PRE-SCORE
-# =========================================================
+_auto_binance = BinanceClient()
+_auto_scanner = MarketScanner()
+
 
 def _candidate_score(
     ticker: Dict[str, Any],
 ) -> float:
     """
-    Cheap ranking only.
+    Cheap pre-screen score.
 
-    This is NOT the final scanner confidence
-    and NOT the trade score.
+    This is NOT trade confidence.
 
-    It is only used to prioritize the next batch
-    while still retaining the COMPLETE Futures universe.
+    It only ranks liquid and moving contracts
+    before expensive deep analysis.
     """
 
     change = _safe_float(
@@ -185,7 +120,7 @@ def _candidate_score(
         )
     )
 
-    quote_volume = _safe_float(
+    volume = _safe_float(
         ticker.get(
             "quoteVolume",
             0,
@@ -197,8 +132,9 @@ def _candidate_score(
         max(
             0.0,
             (
-                quote_volume / 10_000_000.0
-            ) ** 0.5
+                (volume / 10_000_000.0)
+                ** 0.5
+            )
             * 8.0,
         ),
     )
@@ -227,7 +163,7 @@ def _candidate_score(
     )
 
 
-def _is_valid_futures_ticker(
+def _is_valid_futures_usdt_ticker(
     ticker: Dict[str, Any],
 ) -> bool:
 
@@ -238,7 +174,9 @@ def _is_valid_futures_ticker(
         )
     ).upper()
 
-    if not symbol.endswith("USDT"):
+    if not symbol.endswith(
+        "USDT"
+    ):
         return False
 
     if any(
@@ -263,173 +201,92 @@ def _is_valid_futures_ticker(
     )
 
 
-# =========================================================
-# COMPLETE FUTURES UNIVERSE
-# =========================================================
-
-async def _build_full_futures_universe() -> List[
+async def _build_candidate_universe() -> List[
     Dict[str, Any]
 ]:
-
     """
-    Build the complete active Binance Futures USDT
-    perpetual universe.
+    Build a cheap Futures universe.
 
-    No artificial 150-coin cap.
+    Up to 150 symbols are retained.
+
+    Only a small subset is deeply analyzed,
+    keeping Render memory usage under control.
     """
 
-    exchange_info = (
-        await _auto_binance.exchange_info(
-            market="futures"
-        )
-    )
-
-    if not isinstance(
-        exchange_info,
-        dict,
-    ):
-        return []
-
-    raw_symbols = exchange_info.get(
-        "symbols",
-        [],
-    )
-
-    if not isinstance(
-        raw_symbols,
-        list,
-    ):
-        return []
-
-    # Get 24h tickers once for cheap ranking.
     tickers = await _auto_binance.ticker_24h(
         market="futures"
     )
 
-    ticker_map: Dict[
-        str,
-        Dict[str, Any],
-    ] = {}
-
-    if isinstance(
+    if not isinstance(
         tickers,
         list,
     ):
+        return []
 
-        for ticker in tickers:
-
-            if not isinstance(
-                ticker,
-                dict,
-            ):
-                continue
-
-            symbol = str(
-                ticker.get(
-                    "symbol",
-                    "",
-                )
-            ).upper()
-
-            ticker_map[
-                symbol
-            ] = ticker
-
-    universe: List[
+    candidates: List[
         Dict[str, Any]
     ] = []
 
-    for item in raw_symbols:
+    for ticker in tickers:
 
         if not isinstance(
-            item,
+            ticker,
             dict,
         ):
             continue
 
+        if not _is_valid_futures_usdt_ticker(
+            ticker
+        ):
+            continue
+
         symbol = str(
-            item.get(
+            ticker.get(
                 "symbol",
                 "",
             )
         ).upper()
 
-        status = str(
-            item.get(
-                "status",
-                "",
+        change = _safe_float(
+            ticker.get(
+                "priceChangePercent",
+                0,
             )
-        ).upper()
-
-        quote_asset = str(
-            item.get(
-                "quoteAsset",
-                "",
-            )
-        ).upper()
-
-        contract_type = str(
-            item.get(
-                "contractType",
-                "",
-            )
-        ).upper()
-
-        if not (
-            symbol.endswith("USDT")
-            and quote_asset == "USDT"
-            and status == "TRADING"
-            and contract_type == "PERPETUAL"
-        ):
-            continue
-
-        ticker = ticker_map.get(
-            symbol,
-            {},
         )
 
-        if ticker and not _is_valid_futures_ticker(
-            ticker
-        ):
-            continue
+        quote_volume = _safe_float(
+            ticker.get(
+                "quoteVolume",
+                0,
+            )
+        )
 
-        universe.append(
+        last_price = _safe_float(
+            ticker.get(
+                "lastPrice",
+                0,
+            )
+        )
+
+        score = _candidate_score(
+            ticker
+        )
+
+        candidates.append(
             {
                 "symbol": symbol,
                 "coin": symbol[:-4],
-                "market": "futures",
-                "price": _safe_float(
-                    ticker.get(
-                        "lastPrice",
-                        0,
-                    )
-                ),
+                "price": last_price,
                 "price_change_24h": round(
-                    _safe_float(
-                        ticker.get(
-                            "priceChangePercent",
-                            0,
-                        )
-                    ),
+                    change,
                     4,
                 ),
-                "quote_volume_24h": _safe_float(
-                    ticker.get(
-                        "quoteVolume",
-                        0,
-                    )
-                ),
-                "candidate_score": _candidate_score(
-                    ticker
-                )
-                if ticker
-                else 0.0,
+                "quote_volume_24h": quote_volume,
+                "candidate_score": score,
             }
         )
 
-    # Prioritize the strongest movers/liquidity,
-    # but retain ALL symbols in the universe.
-    universe.sort(
+    candidates.sort(
         key=lambda item: (
             _safe_float(
                 item.get(
@@ -455,30 +312,18 @@ async def _build_full_futures_universe() -> List[
         reverse=True,
     )
 
-    return universe
+    return candidates[
+        :AUTO_UNIVERSE_SIZE
+    ]
 
-
-# =========================================================
-# AUTO SCAN CYCLE
-# =========================================================
 
 async def _auto_scan_cycle() -> None:
-
     """
-    Full-universe rotating scanner.
+    One background scan cycle.
 
-    Every cycle:
-
-    1. Load ALL active Futures contracts.
-    2. Keep the complete universe in backend state.
-    3. Take a small memory-safe batch.
-    4. Deep-analyze each symbol.
-    5. Run the complete 24-point Trade Gate.
-    6. Save the exact backend result.
-    7. Advance cursor.
-    8. Continue next cycle.
-
-    Dashboard reads this exact stored state.
+    1. Build a 150-symbol cheap universe.
+    2. Deep-analyze top 1 only.
+    3. Keep 90%+ signals.
     """
 
     _auto_state[
@@ -492,79 +337,34 @@ async def _auto_scan_cycle() -> None:
     try:
 
         universe = (
-            await _build_full_futures_universe()
+            await _build_candidate_universe()
         )
-
-        if not universe:
-
-            raise RuntimeError(
-                "Binance Futures universe is empty."
-            )
 
         _auto_state[
             "universe"
         ] = universe
 
         _auto_state[
-            "scanned_universe"
+            "scanned"
         ] = len(
             universe
         )
 
-        _auto_state[
-            "scan_total"
-        ] = len(
-            universe
+        deep_candidates = (
+            universe[
+                :AUTO_DEEP_ANALYSIS_SIZE
+            ]
         )
 
-        # -------------------------------------------------
-        # START / CONTINUE CURSOR
-        # -------------------------------------------------
-
-        cursor = int(
-            _auto_state.get(
-                "scan_cursor",
-                0,
-            )
-        )
-
-        if cursor >= len(
-            universe
-        ):
-
-            cursor = 0
-
-        batch_size = min(
-            AUTO_DEEP_ANALYSIS_BATCH,
-            len(universe),
-        )
-
-        batch: List[
+        signals: List[
             Dict[str, Any]
         ] = []
 
-        for offset in range(
-            batch_size
-        ):
+        trade_evaluations: List[
+            Dict[str, Any]
+        ] = []
 
-            index = (
-                cursor
-                + offset
-            ) % len(
-                universe
-            )
-
-            batch.append(
-                universe[
-                    index
-                ]
-            )
-
-        # -------------------------------------------------
-        # DEEP SCAN
-        # -------------------------------------------------
-
-        for candidate in batch:
+        for candidate in deep_candidates:
 
             symbol = candidate[
                 "symbol"
@@ -592,22 +392,10 @@ async def _auto_scan_cycle() -> None:
                 ):
                     continue
 
-                # -----------------------------------------
-                # RUN THE 24-POINT TRADE GATE
-                # -----------------------------------------
-
-                trade_decision = (
-                    default_trade_engine.evaluate_trade(
-                        analysis
-                    )
-                )
-
-                scanner_confidence = (
-                    _safe_float(
-                        analysis.get(
-                            "confidence",
-                            0,
-                        )
+                confidence = _safe_float(
+                    analysis.get(
+                        "confidence",
+                        0,
                     )
                 )
 
@@ -618,224 +406,112 @@ async def _auto_scan_cycle() -> None:
                     )
                 ).upper()
 
-                trade_score = (
-                    _safe_float(
+                # Run the strict 24-point trade gate on every
+                # deep analysis. This is still PAPER-TRADING only;
+                # no live order is placed here.
+                try:
+                    trade_decision = (
+                        default_trade_engine
+                        .evaluate_trade(
+                            analysis
+                        )
+                    )
+                except Exception as trade_exc:
+                    trade_decision = {
+                        "decision": "NO_TRADE",
+                        "trade_score": 0.0,
+                        "reason": str(trade_exc),
+                    }
+
+                trade_record = {
+                    "symbol": symbol,
+                    "coin": symbol[:-4],
+                    "direction": direction,
+                    "scanner_confidence": confidence,
+                    "candidate_score": candidate.get(
+                        "candidate_score",
+                        0,
+                    ),
+                    "decision": trade_decision.get(
+                        "decision",
+                        "NO_TRADE",
+                    ),
+                    "trade_score": _safe_float(
                         trade_decision.get(
                             "trade_score",
                             0,
                         )
-                    )
-                )
-
-                passed_confirmations = int(
-                    trade_decision.get(
+                    ),
+                    "passed_confirmations": trade_decision.get(
                         "passed_confirmations",
                         0,
-                    )
-                )
-
-                total_confirmations = int(
-                    trade_decision.get(
+                    ),
+                    "total_confirmations": trade_decision.get(
                         "total_confirmations",
                         24,
-                    )
-                )
-
-                decision = (
-                    trade_decision.get(
-                        "decision",
-                        "NO_TRADE",
-                    )
-                )
-
-                # -----------------------------------------
-                # BACKEND RESULT
-                # -----------------------------------------
-
-                result = dict(
-                    analysis
-                )
-
-                result[
-                    "symbol"
-                ] = symbol
-
-                result[
-                    "coin"
-                ] = candidate.get(
-                    "coin",
-                    symbol[:-4],
-                )
-
-                result[
-                    "scan_complete"
-                ] = True
-
-                result[
-                    "scanner_confidence"
-                ] = scanner_confidence
-
-                result[
-                    "trade_score"
-                ] = trade_score
-
-                result[
-                    "passed_confirmations"
-                ] = passed_confirmations
-
-                result[
-                    "total_confirmations"
-                ] = total_confirmations
-
-                result[
-                    "trade_decision"
-                ] = decision
-
-                result[
-                    "critical_failures"
-                ] = trade_decision.get(
-                    "critical_failures",
-                    [],
-                )
-
-                result[
-                    "confirmations"
-                ] = trade_decision.get(
-                    "confirmations",
-                    [],
-                )
-
-                result[
-                    "candidate_score"
-                ] = candidate.get(
-                    "candidate_score",
-                    0,
-                )
-
-                result[
-                    "confidence_level"
-                ] = _confidence_level(
-                    scanner_confidence
-                )
-
-                result[
-                    "backend_scanned_at"
-                ] = datetime.now(
-                    timezone.utc
-                ).isoformat()
-
-                # -----------------------------------------
-                # SAVE EXACT RESULT
-                # -----------------------------------------
-
-                _auto_state[
-                    "results"
-                ][symbol] = result
-
-            except Exception as exc:
-
-                _auto_state[
-                    "error"
-                ] = (
-                    f"{symbol}: {exc}"
-                )
-
-            finally:
-
-                gc.collect()
-
-        # -------------------------------------------------
-        # UPDATE CURSOR
-        # -------------------------------------------------
-
-        _auto_state[
-            "scan_cursor"
-        ] = (
-            cursor
-            + batch_size
-        ) % len(
-            universe
-        )
-
-        _auto_state[
-            "deep_analyzed_last_batch"
-        ] = batch_size
-
-        _auto_state[
-            "completed_symbols"
-        ] = len(
-            _auto_state[
-                "results"
-            ]
-        )
-
-        # -------------------------------------------------
-        # BUILD SIGNAL VIEW FROM BACKEND RESULTS
-        # -------------------------------------------------
-
-        signals = []
-
-        for item in (
-            _auto_state[
-                "results"
-            ].values()
-        ):
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
-
-            if not item.get(
-                "scan_complete",
-                False,
-            ):
-                continue
-
-            direction = str(
-                item.get(
-                    "direction",
-                    "NEUTRAL",
-                )
-            ).upper()
-
-            scanner_confidence = (
-                _safe_float(
-                    item.get(
-                        "scanner_confidence",
-                        item.get(
-                            "confidence",
-                            0,
-                        ),
-                    )
-                )
-            )
-
-            if (
-                direction
-                in {
-                    "LONG",
-                    "SHORT",
+                    ),
+                    "critical_failures": trade_decision.get(
+                        "critical_failures",
+                        [],
+                    ),
+                    "reasons": trade_decision.get(
+                        "reasons",
+                        [],
+                    ),
                 }
-                and scanner_confidence >= 90
-            ):
 
-                signals.append(
-                    item
+                trade_evaluations.append(
+                    trade_record
                 )
+
+                if (
+                    direction
+                    in {
+                        "LONG",
+                        "SHORT",
+                    }
+                    and confidence >= 90.0
+                ):
+
+                    enriched = dict(
+                        analysis
+                    )
+
+                    enriched[
+                        "candidate_score"
+                    ] = candidate.get(
+                        "candidate_score",
+                        0,
+                    )
+
+                    enriched[
+                        "confidence_level"
+                    ] = _confidence_level(
+                        confidence
+                    )
+
+                    enriched[
+                        "trade_decision"
+                    ] = trade_decision
+
+                    signals.append(
+                        enriched
+                    )
+
+            except Exception:
+                continue
 
         signals.sort(
             key=lambda item: (
                 _safe_float(
                     item.get(
-                        "trade_score",
+                        "confidence",
                         0,
                     )
                 ),
                 _safe_float(
                     item.get(
-                        "scanner_confidence",
+                        "candidate_score",
                         0,
                     )
                 ),
@@ -847,49 +523,15 @@ async def _auto_scan_cycle() -> None:
             "signals"
         ] = signals
 
-        # -------------------------------------------------
-        # TRADE GATE SUMMARY
-        # -------------------------------------------------
-
-        execute_count = 0
-        watch_count = 0
-        no_trade_count = 0
-
-        for item in (
-            _auto_state[
-                "results"
-            ].values()
-        ):
-
-            decision = item.get(
-                "trade_decision",
-                "NO_TRADE",
-            )
-
-            if decision == (
-                "EXECUTE_CANDIDATE"
-            ):
-
-                execute_count += 1
-
-            elif decision == "WATCH":
-
-                watch_count += 1
-
-            else:
-
-                no_trade_count += 1
+        _auto_state[
+            "trade_evaluations"
+        ] = trade_evaluations
 
         _auto_state[
-            "trade_gate"
-        ] = {
-            "execute_candidates":
-                execute_count,
-            "watch":
-                watch_count,
-            "no_trade":
-                no_trade_count,
-        }
+            "deep_analyzed"
+        ] = len(
+            deep_candidates
+        )
 
         _auto_state[
             "last_scan"
@@ -897,13 +539,20 @@ async def _auto_scan_cycle() -> None:
             timezone.utc
         ).isoformat()
 
+        # Release temporary deep-analysis objects
+        # before the next 60-second cycle.
+        del signals
+        del trade_evaluations
+        del deep_candidates
+        del universe
+
+        gc.collect()
+
     except Exception as exc:
 
         _auto_state[
             "error"
-        ] = str(
-            exc
-        )
+        ] = str(exc)
 
     finally:
 
@@ -918,15 +567,15 @@ async def _auto_scan_cycle() -> None:
         gc.collect()
 
 
-# =========================================================
-# SCAN LOOP
-# =========================================================
-
 async def _auto_scanner_loop() -> None:
+    """
+    Continuous one-minute scanner.
 
-    await asyncio.sleep(
-        3
-    )
+    A new scan starts only after the previous
+    scan has completed.
+    """
+
+    await asyncio.sleep(3)
 
     while True:
 
@@ -935,16 +584,17 @@ async def _auto_scanner_loop() -> None:
             await _auto_scan_cycle()
 
         except asyncio.CancelledError:
-
             raise
 
         except Exception as exc:
 
             _auto_state[
                 "error"
-            ] = str(
-                exc
-            )
+            ] = str(exc)
+
+            _auto_state[
+                "running"
+            ] = False
 
         for remaining in range(
             AUTO_SCAN_INTERVAL_SECONDS,
@@ -963,13 +613,8 @@ async def _auto_scanner_loop() -> None:
                 )
 
             except asyncio.CancelledError:
-
                 raise
 
-
-# =========================================================
-# STARTUP / SHUTDOWN
-# =========================================================
 
 @app.on_event(
     "startup"
@@ -997,10 +642,7 @@ async def stop_background_scanner() -> None:
 
     global _auto_scanner_task
 
-    if (
-        _auto_scanner_task is None
-    ):
-
+    if _auto_scanner_task is None:
         return
 
     _auto_scanner_task.cancel()
@@ -1010,7 +652,6 @@ async def stop_background_scanner() -> None:
         await _auto_scanner_task
 
     except asyncio.CancelledError:
-
         pass
 
     _auto_scanner_task = None
@@ -1041,8 +682,10 @@ async def _load_futures_symbols() -> List[
             [],
         )
 
-    info = await _auto_binance.exchange_info(
-        market="futures"
+    info = (
+        await _auto_binance.exchange_info(
+            market="futures"
+        )
     )
 
     raw_symbols = (
@@ -1067,7 +710,6 @@ async def _load_futures_symbols() -> List[
             item,
             dict,
         ):
-
             continue
 
         symbol = str(
@@ -1099,9 +741,7 @@ async def _load_futures_symbols() -> List[
         ).upper()
 
         if (
-            symbol.endswith(
-                "USDT"
-            )
+            symbol.endswith("USDT")
             and quote_asset == "USDT"
             and status == "TRADING"
             and contract_type == "PERPETUAL"
@@ -1109,33 +749,26 @@ async def _load_futures_symbols() -> List[
 
             symbols.append(
                 {
-                    "symbol":
-                        symbol,
-                    "coin":
-                        symbol[:-4],
-                    "market":
-                        "futures",
+                    "symbol": symbol,
+                    "coin": symbol[:-4],
+                    "market": "futures",
                 }
             )
 
     symbols.sort(
-        key=lambda item:
-            item["coin"]
+        key=lambda item: item[
+            "coin"
+        ]
     )
 
     _symbol_cache[
         "futures"
     ] = {
-        "symbols":
-            symbols
+        "symbols": symbols
     }
 
     return symbols
 
-
-# =========================================================
-# SEARCH API
-# =========================================================
 
 @app.get(
     "/api/search"
@@ -1169,7 +802,7 @@ async def search_coins(
         )
 
     query = (
-        str(q)
+        q
         .upper()
         .replace(
             "/",
@@ -1177,10 +810,6 @@ async def search_coins(
         )
         .replace(
             "-",
-            "",
-        )
-        .replace(
-            "USDT",
             "",
         )
         .strip()
@@ -1193,16 +822,12 @@ async def search_coins(
     if not query:
 
         return {
-            "success":
-                True,
-            "query":
-                "",
-            "coins":
-                symbols[:20],
+            "success": True,
+            "query": "",
+            "coins": symbols[:20],
         }
 
     starts_with = []
-
     contains = []
 
     for item in symbols:
@@ -1231,17 +856,14 @@ async def search_coins(
     )[:20]
 
     return {
-        "success":
-            True,
-        "query":
-            query,
-        "coins":
-            results,
+        "success": True,
+        "query": query,
+        "coins": results,
     }
 
 
 # =========================================================
-# AUTO STATUS API
+# AUTO SCANNER API
 # =========================================================
 
 @app.get(
@@ -1252,78 +874,42 @@ async def auto_scan_status() -> Dict[
     Any,
 ]:
 
-    universe_total = _auto_state[
-        "scan_total"
-    ]
-
-    completed = _auto_state[
-        "completed_symbols"
-    ]
-
-    completion = (
-        (
-            completed
-            / universe_total
-            * 100.0
-        )
-        if universe_total
-        else 0.0
-    )
-
     return {
-        "success":
-            True,
-
-        "market":
-            "futures",
-
-        "running":
-            _auto_state[
-                "running"
-            ],
-
-        "last_scan":
-            _auto_state[
-                "last_scan"
-            ],
-
-        "next_scan_in_seconds":
+        "success": True,
+        "market": _auto_state[
+            "market"
+        ],
+        "running": _auto_state[
+            "running"
+        ],
+        "last_scan": _auto_state[
+            "last_scan"
+        ],
+        "next_scan_in_seconds": (
             _auto_state[
                 "next_scan_in_seconds"
-            ],
-
-        "universe_total":
-            universe_total,
-
-        "completed_symbols":
-            completed,
-
-        "completion_percent":
-            round(
-                completion,
-                2,
-            ),
-
-        "deep_analyzed_last_batch":
+            ]
+        ),
+        "scanned_universe": (
             _auto_state[
-                "deep_analyzed_last_batch"
-            ],
-
-        "trade_gate":
+                "scanned"
+            ]
+        ),
+        "deep_analyzed": (
             _auto_state[
-                "trade_gate"
-            ],
-
-        "error":
+                "deep_analyzed"
+            ]
+        ),
+        "signals_count": len(
             _auto_state[
-                "error"
-            ],
+                "signals"
+            ]
+        ),
+        "error": _auto_state[
+            "error"
+        ],
     }
 
-
-# =========================================================
-# AUTO SIGNALS API
-# =========================================================
 
 @app.get(
     "/api/auto/signals"
@@ -1339,88 +925,48 @@ async def auto_signals(
     Any,
 ]:
 
-    signals = []
-
-    for item in (
-        _auto_state[
+    signals = [
+        item
+        for item in _auto_state[
             "signals"
         ]
-    ):
-
-        scanner_confidence = (
-            _safe_float(
-                item.get(
-                    "scanner_confidence",
-                    item.get(
-                        "confidence",
-                        0,
-                    ),
-                )
+        if _safe_float(
+            item.get(
+                "confidence",
+                0,
             )
-        )
-
-        if (
-            scanner_confidence
-            >= min_confidence
-        ):
-
-            signals.append(
-                item
-            )
+        ) >= min_confidence
+    ]
 
     return {
-        "success":
-            True,
-
-        "market":
-            "futures",
-
-        "min_confidence":
-            min_confidence,
-
-        "scanned":
-            _auto_state[
-                "scan_total"
-            ],
-
-        "completed_symbols":
-            _auto_state[
-                "completed_symbols"
-            ],
-
-        "signals_count":
-            len(
-                signals
-            ),
-
-        "signals":
-            signals,
-
-        "last_scan":
-            _auto_state[
-                "last_scan"
-            ],
-
-        "running":
-            _auto_state[
-                "running"
-            ],
-
-        "next_scan_in_seconds":
+        "success": True,
+        "market": "futures",
+        "min_confidence": (
+            min_confidence
+        ),
+        "scanned": _auto_state[
+            "scanned"
+        ],
+        "deep_analyzed": _auto_state[
+            "deep_analyzed"
+        ],
+        "signals_count": len(
+            signals
+        ),
+        "signals": signals,
+        "last_scan": _auto_state[
+            "last_scan"
+        ],
+        "running": _auto_state[
+            "running"
+        ],
+        "next_scan_in_seconds": (
             _auto_state[
                 "next_scan_in_seconds"
-            ],
-
-        "trade_gate":
-            _auto_state[
-                "trade_gate"
-            ],
+            ]
+        ),
     }
 
-
-# =========================================================
-# AUTO CANDIDATES API
-# =========================================================
 
 @app.get(
     "/api/auto/candidates"
@@ -1429,7 +975,7 @@ async def auto_candidates(
     limit: int = Query(
         default=20,
         ge=1,
-        le=2000,
+        le=150,
     ),
 ) -> Dict[
     str,
@@ -1437,158 +983,44 @@ async def auto_candidates(
 ]:
 
     return {
-        "success":
-            True,
-
-        "market":
-            "futures",
-
-        "universe_size":
-            _auto_state[
-                "scan_total"
-            ],
-
-        "candidates":
-            _auto_state[
-                "universe"
-            ][:limit],
-
-        "last_scan":
-            _auto_state[
-                "last_scan"
-            ],
+        "success": True,
+        "market": "futures",
+        "universe_size": _auto_state[
+            "scanned"
+        ],
+        "candidates": _auto_state[
+            "universe"
+        ][:limit],
+        "last_scan": _auto_state[
+            "last_scan"
+        ],
     }
 
 
 # =========================================================
-# EXACT BACKEND RESULT SNAPSHOT
+# AUTO TRADE-GATE API
 # =========================================================
 
 @app.get(
-    "/api/auto/results"
+    "/api/auto/trades"
 )
-async def auto_results(
-    min_confidence: float = Query(
-        default=0.0,
-        ge=0.0,
-        le=100.0,
-    ),
-) -> Dict[
+async def auto_trade_evaluations() -> Dict[
     str,
     Any,
 ]:
 
-    results = []
-
-    for item in (
-        _auto_state[
-            "results"
-        ].values()
-    ):
-
-        scanner_confidence = (
-            _safe_float(
-                item.get(
-                    "scanner_confidence",
-                    item.get(
-                        "confidence",
-                        0,
-                    ),
-                )
-            )
-        )
-
-        if (
-            scanner_confidence
-            >= min_confidence
-        ):
-
-            results.append(
-                item
-            )
-
-    results.sort(
-        key=lambda item: (
-            _safe_float(
-                item.get(
-                    "trade_score",
-                    0,
-                )
-            ),
-            _safe_float(
-                item.get(
-                    "scanner_confidence",
-                    0,
-                )
-            ),
-        ),
-        reverse=True,
-    )
-
-    universe_total = _auto_state[
-        "scan_total"
-    ]
-
-    completed = _auto_state[
-        "completed_symbols"
-    ]
-
-    completion = (
-        (
-            completed
-            / universe_total
-            * 100.0
-        )
-        if universe_total
-        else 0.0
-    )
-
     return {
-        "success":
-            True,
-
-        "market":
-            "futures",
-
-        "universe_total":
-            universe_total,
-
-        "completed_symbols":
-            completed,
-
-        "completion_percent":
-            round(
-                completion,
-                2,
-            ),
-
-        "running":
-            _auto_state[
-                "running"
-            ],
-
-        "scan_cursor":
-            _auto_state[
-                "scan_cursor"
-            ],
-
-        "last_scan":
-            _auto_state[
-                "last_scan"
-            ],
-
-        "next_scan_in_seconds":
-            _auto_state[
-                "next_scan_in_seconds"
-            ],
-
-        "trade_gate":
-            _auto_state[
-                "trade_gate"
-            ],
-
-        "results":
-            results,
+        "success": True,
+        "market": "futures",
+        "count": len(
+            _auto_state["trade_evaluations"]
+        ),
+        "trade_evaluations": _auto_state[
+            "trade_evaluations"
+        ],
+        "last_scan": _auto_state[
+            "last_scan"
+        ],
     }
 
 
@@ -1600,41 +1032,27 @@ async def auto_results(
 async def root():
 
     return {
-        "app":
-            "RR Trader Live Scanner",
-
-        "status":
-            "online",
-
-        "version":
-            "5.0.0",
-
-        "markets":
-            [
-                "futures",
-                "spot",
-            ],
-
-        "dashboard":
-            "/dashboard",
-
-        "high_confidence_api":
-            "/api/signals",
-
-        "post_api":
-            "/api/post/generate",
-
-        "trade_status":
-            "/api/trade/status",
-
-        "full_scan_status":
-            "/api/auto/status",
-
-        "full_scan_results":
-            "/api/auto/results",
-
-        "message":
-            "RR Trader backend is working",
+        "app": "RR Trader Live Scanner",
+        "status": "online",
+        "version": "4.3.0",
+        "markets": [
+            "futures",
+            "spot",
+        ],
+        "dashboard": "/dashboard",
+        "high_confidence_api": (
+            "/api/signals"
+        ),
+        "post_api": (
+            "/api/post/generate"
+        ),
+        "trade_api": (
+            "/api/trade/status"
+        ),
+        "chart": "TradingView Advanced Chart",
+        "message": (
+            "RR Trader backend is working"
+        ),
     }
 
 
@@ -1642,23 +1060,18 @@ async def root():
 # HEALTH
 # =========================================================
 
-@app.get(
-    "/health"
-)
+@app.get("/health")
 async def health():
 
     return {
-        "success":
-            True,
-        "status":
-            "healthy",
-        "service":
-            "rr-trader",
+        "success": True,
+        "status": "healthy",
+        "service": "rr-trader",
     }
 
 
 # =========================================================
-# NORMAL API ROUTES
+# API ROUTES
 # =========================================================
 
 app.include_router(
@@ -1669,22 +1082,17 @@ app.include_router(
     ],
 )
 
-
-# =========================================================
-# TRADE ENGINE ROUTES
-# =========================================================
-
 app.include_router(
     trade_api_router,
     prefix="/api",
     tags=[
-        "Trade Engine"
+        "Trade Engine",
     ],
 )
 
 
 # =========================================================
-# DASHBOARD
+# DASHBOARD HTML
 # =========================================================
 
 DASHBOARD_HTML = r"""
@@ -1701,7 +1109,7 @@ DASHBOARD_HTML = r"""
     >
 
     <title>
-        RR Trader — Full Futures Intelligence
+        RR Trader Live Intelligence
     </title>
 
     <style>
@@ -1724,8 +1132,7 @@ DASHBOARD_HTML = r"""
                 "Segoe UI",
                 sans-serif;
 
-            color:
-                #f4f7fb;
+            color: #f4f7fb;
 
             background:
                 radial-gradient(
@@ -1744,15 +1151,10 @@ DASHBOARD_HTML = r"""
             z-index: 100;
 
             display: flex;
+            justify-content: space-between;
+            align-items: center;
 
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            padding:
-                14px 24px;
+            padding: 14px 24px;
 
             background:
                 rgba(
@@ -1778,10 +1180,7 @@ DASHBOARD_HTML = r"""
         .brand {
 
             display: flex;
-
-            align-items:
-                center;
-
+            align-items: center;
             gap: 12px;
         }
 
@@ -1791,18 +1190,14 @@ DASHBOARD_HTML = r"""
             height: 42px;
 
             display: grid;
-
-            place-items:
-                center;
+            place-items: center;
 
             border-radius: 12px;
 
             font-size: 15px;
-
             font-weight: 900;
 
-            color:
-                #061018;
+            color: #061018;
 
             background:
                 linear-gradient(
@@ -1810,38 +1205,37 @@ DASHBOARD_HTML = r"""
                     #00e5ff,
                     #7c4dff
                 );
+
+            box-shadow:
+                0 0 24px
+                rgba(
+                    0,
+                    229,
+                    255,
+                    0.25
+                );
         }
 
         .brand-title {
 
-            font-size: 18px;
-
             font-weight: 850;
+            font-size: 18px;
         }
 
         .brand-subtitle {
 
-            margin-top:
-                2px;
-
-            color:
-                #7f8ba0;
-
+            color: #7f8ba0;
             font-size: 11px;
+            margin-top: 2px;
         }
 
         .live {
 
             display: flex;
-
-            align-items:
-                center;
-
+            align-items: center;
             gap: 7px;
 
-            color:
-                #91a0b5;
-
+            color: #91a0b5;
             font-size: 12px;
         }
 
@@ -1852,8 +1246,16 @@ DASHBOARD_HTML = r"""
 
             border-radius: 50%;
 
-            background:
-                #00e676;
+            background: #00e676;
+
+            box-shadow:
+                0 0 12px
+                rgba(
+                    0,
+                    230,
+                    118,
+                    0.9
+                );
         }
 
         .container {
@@ -1875,22 +1277,17 @@ DASHBOARD_HTML = r"""
         .toolbar {
 
             display: flex;
-
-            flex-wrap:
-                wrap;
-
+            flex-wrap: wrap;
             gap: 10px;
 
-            margin-bottom:
-                18px;
+            margin-bottom: 18px;
         }
 
         select,
         input,
         button {
 
-            border-radius:
-                10px;
+            border-radius: 10px;
 
             border:
                 1px solid
@@ -1901,8 +1298,7 @@ DASHBOARD_HTML = r"""
                     0.09
                 );
 
-            color:
-                #fff;
+            color: #fff;
 
             background:
                 rgba(
@@ -1915,29 +1311,29 @@ DASHBOARD_HTML = r"""
             padding:
                 11px 13px;
 
-            outline:
-                none;
+            outline: none;
 
-            font-size:
-                13px;
+            font-size: 13px;
+        }
+
+        select,
+        input {
+
+            min-width: 150px;
         }
 
         input {
 
-            min-width:
-                250px;
+            min-width: 190px;
         }
 
         button {
 
-            cursor:
-                pointer;
+            cursor: pointer;
 
-            border:
-                none;
+            border: none;
 
-            font-weight:
-                800;
+            font-weight: 800;
 
             background:
                 linear-gradient(
@@ -1945,6 +1341,21 @@ DASHBOARD_HTML = r"""
                     #00bdf7,
                     #5c52ff
                 );
+
+            box-shadow:
+                0 8px 24px
+                rgba(
+                    63,
+                    84,
+                    255,
+                    0.22
+                );
+        }
+
+        button:hover {
+
+            transform:
+                translateY(-1px);
         }
 
         .btn-secondary {
@@ -1956,6 +1367,8 @@ DASHBOARD_HTML = r"""
                     255,
                     0.07
                 );
+
+            box-shadow: none;
         }
 
         .section-title {
@@ -1964,30 +1377,24 @@ DASHBOARD_HTML = r"""
                 24px 0 11px;
 
             display: flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .section-title h2 {
 
-            margin:
-                0;
+            margin: 0;
 
-            font-size:
-                17px;
+            font-size: 17px;
+
+            letter-spacing:
+                0.01em;
         }
 
         .section-title span {
 
-            color:
-                #748198;
-
-            font-size:
-                11px;
+            color: #748198;
+            font-size: 11px;
         }
 
         .card {
@@ -2018,8 +1425,7 @@ DASHBOARD_HTML = r"""
                     0.075
                 );
 
-            border-radius:
-                17px;
+            border-radius: 17px;
 
             box-shadow:
                 0 16px 42px
@@ -2029,18 +1435,14 @@ DASHBOARD_HTML = r"""
                     0,
                     0.23
                 );
+
+            backdrop-filter:
+                blur(14px);
         }
 
-        .status-card {
+        .overview {
 
-            padding:
-                18px;
-        }
-
-        .status-row {
-
-            display:
-                grid;
+            display: grid;
 
             grid-template-columns:
                 repeat(
@@ -2048,58 +1450,39 @@ DASHBOARD_HTML = r"""
                     1fr
                 );
 
-            gap:
-                10px;
+            gap: 13px;
         }
 
-        .metric {
+        .overview-card {
 
-            padding:
-                12px;
-
-            border-radius:
-                12px;
-
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    0.04
-                );
+            padding: 17px;
         }
 
-        .metric-label {
+        .label {
 
-            color:
-                #77849b;
+            color: #77849b;
 
             text-transform:
                 uppercase;
 
             letter-spacing:
-                0.07em;
+                0.08em;
 
-            font-size:
-                9px;
+            font-size: 10px;
         }
 
-        .metric-value {
+        .overview-value {
 
-            margin-top:
-                5px;
+            margin-top: 7px;
 
-            font-size:
-                19px;
+            font-size: 24px;
 
-            font-weight:
-                900;
+            font-weight: 850;
         }
 
         .signals {
 
-            display:
-                grid;
+            display: grid;
 
             grid-template-columns:
                 repeat(
@@ -2107,95 +1490,122 @@ DASHBOARD_HTML = r"""
                     1fr
                 );
 
-            gap:
-                13px;
+            gap: 13px;
         }
 
         .signal-card {
 
-            padding:
-                17px;
+            position: relative;
 
-            border-left:
-                3px solid
-                #6d7b91;
+            padding: 17px;
+
+            overflow: hidden;
         }
 
         .signal-card.long {
 
-            border-left-color:
+            border-left:
+                3px solid
                 #00e676;
         }
 
         .signal-card.short {
 
-            border-left-color:
+            border-left:
+                3px solid
                 #ff5252;
         }
 
-        .signal-header {
+        .signal-top {
 
-            display:
-                flex;
+            display: flex;
 
             justify-content:
                 space-between;
 
-            gap:
-                10px;
+            align-items:
+                flex-start;
+
+            gap: 10px;
         }
 
         .symbol {
 
-            font-size:
-                20px;
+            font-size: 19px;
 
-            font-weight:
-                900;
+            font-weight: 900;
         }
 
-        .direction-long {
+        .direction {
 
-            color:
-                #00e676;
+            margin-top: 4px;
 
-            font-weight:
-                900;
+            font-weight: 900;
+
+            font-size: 14px;
         }
 
-        .direction-short {
+        .long-text {
 
-            color:
-                #ff5252;
-
-            font-weight:
-                900;
+            color: #00e676;
         }
 
-        .score-box {
+        .short-text {
+
+            color: #ff5252;
+        }
+
+        .confidence {
 
             padding:
-                8px 10px;
+                7px 10px;
 
-            border-radius:
-                9px;
+            border-radius: 9px;
 
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    0.06
-                );
+            font-size: 15px;
 
-            font-weight:
-                900;
+            font-weight: 900;
         }
 
-        .grid-4 {
+        .confidence.high {
 
-            display:
-                grid;
+            color: #02150b;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #00e676,
+                    #4dff9e
+                );
+        }
+
+        .confidence.very-high {
+
+            color: #09110a;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #b4ff00,
+                    #00e676
+                );
+        }
+
+        .confidence.extreme {
+
+            color: #061019;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #00e5ff,
+                    #00e676
+                );
+        }
+
+        .signal-grid {
+
+            display: grid;
 
             grid-template-columns:
                 repeat(
@@ -2203,20 +1613,16 @@ DASHBOARD_HTML = r"""
                     1fr
                 );
 
-            gap:
-                8px;
+            gap: 8px;
 
-            margin-top:
-                14px;
+            margin-top: 15px;
         }
 
         .mini {
 
-            padding:
-                9px;
+            padding: 9px;
 
-            border-radius:
-                10px;
+            border-radius: 10px;
 
             background:
                 rgba(
@@ -2227,55 +1633,44 @@ DASHBOARD_HTML = r"""
                 );
         }
 
-        .mini-label {
+        .mini .mini-label {
 
-            color:
-                #6f7b90;
+            color: #6f7b90;
 
-            font-size:
-                9px;
+            font-size: 9px;
 
             text-transform:
                 uppercase;
         }
 
-        .mini-value {
+        .mini .mini-value {
 
-            margin-top:
-                4px;
+            margin-top: 4px;
 
-            font-size:
-                12px;
+            font-size: 12px;
 
-            font-weight:
-                800;
+            font-weight: 800;
         }
 
-        .badges {
+        .signal-footer {
 
-            display:
-                flex;
+            display: flex;
 
-            flex-wrap:
-                wrap;
+            flex-wrap: wrap;
 
-            gap:
-                7px;
+            gap: 7px;
 
-            margin-top:
-                12px;
+            margin-top: 12px;
         }
 
         .badge {
 
+            border-radius: 999px;
+
             padding:
                 6px 9px;
 
-            border-radius:
-                999px;
-
-            color:
-                #aeb8c7;
+            color: #aeb8c7;
 
             background:
                 rgba(
@@ -2285,8 +1680,7 @@ DASHBOARD_HTML = r"""
                     0.055
                 );
 
-            font-size:
-                10px;
+            font-size: 10px;
         }
 
         .empty {
@@ -2297,65 +1691,136 @@ DASHBOARD_HTML = r"""
             text-align:
                 center;
 
-            color:
-                #758197;
+            color: #758197;
+        }
+
+        .timeframes {
+
+            display: grid;
+
+            grid-template-columns:
+                repeat(
+                    4,
+                    1fr
+                );
+
+            gap: 10px;
+        }
+
+        .tf-card {
+
+            padding: 13px;
+
+            border-radius: 13px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.04
+                );
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.065
+                );
+        }
+
+        .tf-head {
+
+            display: flex;
+
+            justify-content:
+                space-between;
+        }
+
+        .tf-name {
+
+            font-weight:
+                900;
+        }
+
+        .tf-dir {
+
+            font-weight:
+                900;
+        }
+
+        .tf-row {
+
+            display: flex;
+
+            justify-content:
+                space-between;
+
+            color: #7d899c;
+
+            margin-top: 6px;
+
+            font-size: 10px;
+        }
+
+        .error {
+
+            margin-top:
+                12px;
+
+            color: #ff8a80;
+
+            font-size: 12px;
+        }
+
+        .updated {
+
+            color: #69768b;
+
+            font-size: 10px;
         }
 
         .search-wrap {
 
-            position:
-                relative;
+            position: relative;
 
-            flex:
-                1;
+            flex: 1;
 
-            min-width:
-                280px;
+            min-width: 280px;
         }
 
         .search-suggestions {
 
-            display:
-                none;
+            display: none;
 
-            position:
-                absolute;
+            position: absolute;
 
-            top:
-                48px;
+            left: 0;
+            right: 0;
 
-            left:
-                0;
+            top: 48px;
 
-            right:
-                0;
+            z-index: 200;
 
-            z-index:
-                200;
+            max-height: 280px;
 
-            max-height:
-                280px;
+            overflow: auto;
 
-            overflow:
-                auto;
-
-            padding:
-                6px;
+            padding: 6px;
         }
 
         .suggestion {
 
             padding:
-                10px;
+                10px 11px;
 
-            border-radius:
-                9px;
+            border-radius: 9px;
 
-            cursor:
-                pointer;
+            cursor: pointer;
 
-            display:
-                flex;
+            display: flex;
 
             justify-content:
                 space-between;
@@ -2372,10 +1837,9 @@ DASHBOARD_HTML = r"""
                 );
         }
 
-        .trade-gate {
+        .trade-panel {
 
-            display:
-                grid;
+            display: grid;
 
             grid-template-columns:
                 repeat(
@@ -2383,20 +1847,16 @@ DASHBOARD_HTML = r"""
                     1fr
                 );
 
-            gap:
-                10px;
+            gap: 10px;
 
-            margin-top:
-                14px;
+            margin-top: 14px;
         }
 
-        .gate-card {
+        .trade-stat {
 
-            padding:
-                12px;
+            padding: 12px;
 
-            border-radius:
-                12px;
+            border-radius: 12px;
 
             background:
                 rgba(
@@ -2405,124 +1865,101 @@ DASHBOARD_HTML = r"""
                     255,
                     0.04
                 );
-        }
 
-        .gate-label {
-
-            color:
-                #77849b;
-
-            font-size:
-                9px;
-
-            text-transform:
-                uppercase;
-        }
-
-        .gate-value {
-
-            margin-top:
-                5px;
-
-            font-size:
-                18px;
-
-            font-weight:
-                900;
-        }
-
-        .timeframes {
-
-            display:
-                grid;
-
-            grid-template-columns:
-                repeat(
-                    4,
-                    1fr
-                );
-
-            gap:
-                10px;
-
-            margin-top:
-                15px;
-        }
-
-        .tf {
-
-            padding:
-                12px;
-
-            border-radius:
-                12px;
-
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    0.04
-                );
-        }
-
-        .tf-head {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-        }
-
-        .chart-shell {
-
-            padding:
-                12px;
-
-            overflow:
-                hidden;
-        }
-
-        .chart-toolbar {
-
-            display:
-                flex;
-
-            flex-wrap:
-                wrap;
-
-            gap:
-                8px;
-
-            margin-bottom:
-                10px;
-        }
-
-        .chart-btn {
-
-            padding:
-                8px 12px;
-
-            border-radius:
-                8px;
-
-            background:
+            border:
+                1px solid
                 rgba(
                     255,
                     255,
                     255,
                     0.06
                 );
-
-            box-shadow:
-                none;
-
-            font-size:
-                11px;
         }
 
-        .chart-btn.active {
+        .trade-stat-label {
+
+            color: #718099;
+
+            font-size: 9px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing: 0.06em;
+        }
+
+        .trade-stat-value {
+
+            margin-top: 5px;
+
+            font-size: 14px;
+
+            font-weight: 900;
+        }
+
+        .decision-execute {
+            color: #00e676;
+        }
+
+        .decision-watch {
+            color: #ffd54f;
+        }
+
+        .decision-no-trade {
+            color: #ff6b6b;
+        }
+
+        .chart-card {
+
+            padding: 0;
+
+            overflow: hidden;
+        }
+
+        .chart-toolbar {
+
+            display: flex;
+
+            flex-wrap: wrap;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            gap: 10px;
+
+            padding: 13px 16px;
+
+            border-bottom:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.06
+                );
+        }
+
+        .chart-intervals {
+
+            display: flex;
+
+            gap: 6px;
+
+            flex-wrap: wrap;
+        }
+
+        .chart-intervals button {
+
+            padding:
+                7px 10px;
+
+            font-size: 10px;
+
+            box-shadow: none;
+        }
+
+        .chart-intervals button.active {
 
             background:
                 linear-gradient(
@@ -2534,55 +1971,104 @@ DASHBOARD_HTML = r"""
 
         .chart-container {
 
-            min-height:
-                620px;
+            height: 620px;
 
-            width:
-                100%;
+            width: 100%;
         }
 
-        textarea {
+        .chart-levels {
 
-            width:
-                100%;
+            display: grid;
 
-            min-height:
-                260px;
-
-            resize:
-                vertical;
-
-            padding:
-                14px;
-
-            border-radius:
-                12px;
-
-            border:
-                1px solid
-                rgba(
-                    255,
-                    255,
-                    255,
-                    0.10
+            grid-template-columns:
+                repeat(
+                    5,
+                    1fr
                 );
+
+            gap: 8px;
+
+            padding: 12px 16px 16px;
+        }
+
+        .chart-level {
+
+            padding: 9px 10px;
+
+            border-radius: 10px;
 
             background:
                 rgba(
                     255,
                     255,
                     255,
-                    0.045
+                    0.035
                 );
+        }
 
-            color:
-                #f4f7fb;
+        .chart-level-label {
 
-            outline:
-                none;
+            color: #738097;
 
-            font-size:
-                14px;
+            font-size: 9px;
+        }
+
+        .chart-level-value {
+
+            margin-top: 4px;
+
+            font-size: 12px;
+
+            font-weight: 850;
+        }
+
+        @media (
+            max-width: 1000px
+        ) {
+
+            .trade-panel {
+
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
+                    );
+            }
+
+            .chart-levels {
+
+                grid-template-columns:
+                    repeat(
+                        3,
+                        1fr
+                    );
+            }
+
+            .chart-container {
+                height: 520px;
+            }
+        }
+
+        @media (
+            max-width: 620px
+        ) {
+
+            .trade-panel,
+            .chart-levels {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+            .chart-container {
+                height: 440px;
+            }
+        }
+
+        textarea {
+
+            font-family:
+                inherit;
 
             line-height:
                 1.6;
@@ -2592,7 +2078,7 @@ DASHBOARD_HTML = r"""
             max-width: 1000px
         ) {
 
-            .status-row {
+            .overview {
 
                 grid-template-columns:
                     repeat(
@@ -2605,15 +2091,6 @@ DASHBOARD_HTML = r"""
 
                 grid-template-columns:
                     1fr;
-            }
-
-            .trade-gate {
-
-                grid-template-columns:
-                    repeat(
-                        2,
-                        1fr
-                    );
             }
 
             .timeframes {
@@ -2638,15 +2115,14 @@ DASHBOARD_HTML = r"""
                     );
             }
 
-            .status-row,
-            .trade-gate,
+            .overview,
             .timeframes {
 
                 grid-template-columns:
                     1fr;
             }
 
-            .grid-4 {
+            .signal-grid {
 
                 grid-template-columns:
                     repeat(
@@ -2661,18 +2137,12 @@ DASHBOARD_HTML = r"""
                     column;
             }
 
-            input,
             select,
+            input,
             button {
 
                 width:
                     100%;
-            }
-
-            .chart-container {
-
-                min-height:
-                    470px;
             }
         }
 
@@ -2699,12 +2169,13 @@ DASHBOARD_HTML = r"""
             </div>
 
             <div class="brand-subtitle">
-                Full Futures Scanner • 24-Point Trade Gate
+                Live Crypto Intelligence Dashboard
             </div>
 
         </div>
 
     </div>
+
 
     <div class="live">
 
@@ -2720,7 +2191,7 @@ DASHBOARD_HTML = r"""
 <main class="container">
 
 
-    <!-- SEARCH -->
+    <!-- SEARCH + CONTROLS -->
 
     <div class="toolbar">
 
@@ -2728,8 +2199,9 @@ DASHBOARD_HTML = r"""
 
             <input
                 id="coinSearch"
-                placeholder="Search Futures coin — BTC, BANK, ZDC..."
+                placeholder="Search Futures coin — e.g. BTC, BANK, ZDC"
                 autocomplete="off"
+                style="width:100%;"
             >
 
             <div
@@ -2756,15 +2228,15 @@ DASHBOARD_HTML = r"""
         <select id="filter">
 
             <option value="90">
-                90%+ Scanner Confidence
+                90%+
             </option>
 
             <option value="95">
-                95%+ Scanner Confidence
+                95%+
             </option>
 
             <option value="99">
-                99%+ Scanner Confidence
+                99%+
             </option>
 
         </select>
@@ -2790,149 +2262,185 @@ DASHBOARD_HTML = r"""
         <button
             onclick="analyzeSearchCoin()"
         >
-            Analyze
+            Analyze Coin
         </button>
 
 
         <button
             class="btn-secondary"
-            onclick="refreshAll()"
+            onclick="refreshAutoSignals()"
         >
-            Refresh
+            Refresh Now
         </button>
 
     </div>
 
 
-    <!-- FULL SCAN STATUS -->
-
-    <div class="section-title">
-
-        <h2>
-            Full Binance Futures Scan
-        </h2>
-
-        <span>
-            Backend snapshot
-        </span>
-
-    </div>
-
+    <!-- AUTO SCANNER STATUS -->
 
     <section
-        class="card status-card"
+        class="card"
+        style="
+            padding:14px 16px;
+            margin-bottom:14px;
+            display:flex;
+            flex-wrap:wrap;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+        "
     >
 
-        <div
-            style="
-                display:flex;
-                justify-content:space-between;
-                gap:10px;
-                flex-wrap:wrap;
-            "
-        >
+        <div>
 
-            <div>
-
-                <strong
-                    id="fullScanStatus"
-                >
-                    Starting full Futures scanner...
-                </strong>
-
-                <div
-                    class="updated"
-                    id="fullScanProgress"
-                    style="
-                        margin-top:4px;
-                        color:#748198;
-                        font-size:11px;
-                    "
-                >
-                    0 / 0 scanned
-                </div>
-
-            </div>
-
+            <strong>
+                LIVE AUTO SCANNER
+            </strong>
 
             <div
-                class="badge"
-                id="fullScanDecisionSummary"
+                id="autoStatusText"
+                class="updated"
+                style="margin-top:4px;"
             >
-                Execute 0 • Watch 0 • No Trade 0
+                Starting background scanner...
             </div>
 
         </div>
 
 
         <div
-            class="status-row"
             style="
-                margin-top:14px;
+                display:flex;
+                gap:8px;
+                flex-wrap:wrap;
             "
         >
 
-            <div class="metric">
-
-                <div class="metric-label">
-                    Futures Universe
-                </div>
-
-                <div
-                    id="fullUniverse"
-                    class="metric-value"
-                >
+            <span class="badge">
+                Universe:
+                <strong id="autoUniverse">
                     0
-                </div>
+                </strong>
+            </span>
 
-            </div>
 
-
-            <div class="metric">
-
-                <div class="metric-label">
-                    Completed
-                </div>
-
-                <div
-                    id="fullCompleted"
-                    class="metric-value"
-                >
+            <span class="badge">
+                Deep:
+                <strong id="autoDeep">
                     0
-                </div>
-
-            </div>
-
-
-            <div class="metric">
-
-                <div class="metric-label">
-                    Completion
-                </div>
-
-                <div
-                    id="fullCompletion"
-                    class="metric-value"
-                >
-                    0%
-                </div>
-
-            </div>
+                </strong>
+            </span>
 
 
-            <div class="metric">
-
-                <div class="metric-label">
-                    Next Batch
-                </div>
-
-                <div
-                    id="fullNextBatch"
-                    class="metric-value"
-                >
+            <span class="badge">
+                Next:
+                <strong id="autoNext">
                     60s
-                </div>
+                </strong>
+            </span>
 
+        </div>
+
+    </section>
+
+
+    <!-- TOP CANDIDATES -->
+
+    <div class="section-title">
+
+        <h2>
+            Top Futures Candidates
+        </h2>
+
+        <span>
+            Live 150-coin universe
+        </span>
+
+    </div>
+
+
+    <section
+        id="candidateGrid"
+        class="signals"
+        style="
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+        "
+    >
+
+        <div class="card empty">
+            Loading candidate universe...
+        </div>
+
+    </section>
+
+
+    <!-- OVERVIEW -->
+
+    <section class="overview">
+
+        <div class="card overview-card">
+
+            <div class="label">
+                90%+ Signals
+            </div>
+
+            <div
+                id="count90"
+                class="overview-value"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="card overview-card">
+
+            <div class="label">
+                95%+ Signals
+            </div>
+
+            <div
+                id="count95"
+                class="overview-value"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="card overview-card">
+
+            <div class="label">
+                99%+ Signals
+            </div>
+
+            <div
+                id="count99"
+                class="overview-value"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="card overview-card">
+
+            <div class="label">
+                Coins Scanned
+            </div>
+
+            <div
+                id="scanned"
+                class="overview-value"
+            >
+                0
             </div>
 
         </div>
@@ -2940,17 +2448,21 @@ DASHBOARD_HTML = r"""
     </section>
 
 
-    <!-- FULLY SCANNED SIGNALS -->
+    <!-- HIGH CONFIDENCE SIGNALS -->
 
     <div class="section-title">
 
         <h2>
-            Fully Scanned Signals
+            High Confidence Signals
         </h2>
 
-        <span>
-            Only backend-completed results
-        </span>
+        <div>
+
+            <span id="lastUpdated">
+                Waiting for scan...
+            </span>
+
+        </div>
 
     </div>
 
@@ -2961,9 +2473,7 @@ DASHBOARD_HTML = r"""
     >
 
         <div class="card empty">
-
-            Waiting for completed backend scans...
-
+            Waiting for the automatic background scan...
         </div>
 
     </section>
@@ -2971,24 +2481,20 @@ DASHBOARD_HTML = r"""
 
     <div
         id="signalError"
-        style="
-            margin-top:10px;
-            color:#ff8a80;
-            font-size:12px;
-        "
+        class="error"
     ></div>
 
 
-    <!-- SELECTED ANALYSIS -->
+    <!-- SELECTED SYMBOL -->
 
     <div class="section-title">
 
         <h2>
-            Selected Coin Analysis
+            Selected Symbol Analysis
         </h2>
 
         <span>
-            5m • 15m • 1h • 4h
+            5m → 4h
         </span>
 
     </div>
@@ -3003,15 +2509,41 @@ DASHBOARD_HTML = r"""
     >
 
         <div class="empty">
-
-            Search a Futures coin to analyze it.
-
+            Analyze a symbol to see its full analysis.
         </div>
 
     </section>
 
 
-    <!-- TRADINGVIEW -->
+    <!-- TRADE GATE -->
+
+    <div class="section-title">
+
+        <h2>
+            24-Point Trade Gate
+        </h2>
+
+        <span>
+            Paper mode • no live orders
+        </span>
+
+    </div>
+
+
+    <section
+        id="tradeGate"
+        class="card"
+        style="padding:18px; margin-bottom:20px;"
+    >
+
+        <div class="empty">
+            Analyze a coin to evaluate the full trade gate.
+        </div>
+
+    </section>
+
+
+    <!-- TRADINGVIEW CHART -->
 
     <div class="section-title">
 
@@ -3020,67 +2552,63 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            Drawing toolbar enabled
+            Draw • edit • analyze
         </span>
 
     </div>
 
 
-    <section
-        class="card chart-shell"
-    >
+    <section class="card chart-card">
 
-        <div
-            class="chart-toolbar"
-        >
+        <div class="chart-toolbar">
 
-            <button
-                class="chart-btn active"
-                onclick="
-                    setChartInterval(
-                        '5',
-                        this
-                    )
-                "
-            >
-                5m
-            </button>
+            <div>
 
-            <button
-                class="chart-btn"
-                onclick="
-                    setChartInterval(
-                        '15',
-                        this
-                    )
-                "
-            >
-                15m
-            </button>
+                <strong id="chartSymbolLabel">
+                    Select a coin
+                </strong>
 
-            <button
-                class="chart-btn"
-                onclick="
-                    setChartInterval(
-                        '60',
-                        this
-                    )
-                "
-            >
-                1h
-            </button>
+                <div class="updated" style="margin-top:4px;">
+                    TradingView Advanced Chart
+                </div>
 
-            <button
-                class="chart-btn"
-                onclick="
-                    setChartInterval(
-                        '240',
-                        this
-                    )
-                "
-            >
-                4h
-            </button>
+            </div>
+
+            <div class="chart-intervals">
+
+                <button
+                    class="btn-secondary chart-interval active"
+                    data-interval="5"
+                    onclick="setChartInterval('5', this)"
+                >
+                    5m
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="15"
+                    onclick="setChartInterval('15', this)"
+                >
+                    15m
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="60"
+                    onclick="setChartInterval('60', this)"
+                >
+                    1h
+                </button>
+
+                <button
+                    class="btn-secondary chart-interval"
+                    data-interval="240"
+                    onclick="setChartInterval('240', this)"
+                >
+                    4h
+                </button>
+
+            </div>
 
         </div>
 
@@ -3088,42 +2616,104 @@ DASHBOARD_HTML = r"""
         <div
             id="tradingviewChart"
             class="chart-container"
-        ></div>
+        >
+
+            <div class="empty">
+                Search and analyze a Futures coin to load its chart.
+            </div>
+
+        </div>
+
+
+        <div class="chart-levels">
+
+            <div class="chart-level">
+                <div class="chart-level-label">ENTRY</div>
+                <div class="chart-level-value" id="chartEntry">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">STOP LOSS</div>
+                <div class="chart-level-value" id="chartSL">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP1</div>
+                <div class="chart-level-value" id="chartTP1">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP2</div>
+                <div class="chart-level-value" id="chartTP2">—</div>
+            </div>
+
+            <div class="chart-level">
+                <div class="chart-level-label">TP3</div>
+                <div class="chart-level-value" id="chartTP3">—</div>
+            </div>
+
+        </div>
+
+        <div
+            class="updated"
+            style="padding:0 16px 15px;"
+        >
+            Use the TradingView drawing toolbar to manually add or edit support,
+            resistance, entry, SL and TP levels on the chart.
+        </div>
 
     </section>
 
 
-    <!-- TRADE ENGINE STATUS -->
+    <!-- PAPER TRADING STATUS -->
 
     <div class="section-title">
 
         <h2>
-            Paper Trade Engine
+            Paper Trading Engine
         </h2>
 
         <span>
-            Real execution is OFF
+            No real orders
         </span>
 
     </div>
 
 
     <section
-        id="tradeEngineStatus"
+        id="paperStatus"
         class="card"
-        style="
-            padding:18px;
-        "
+        style="padding:18px; margin-bottom:20px;"
     >
 
-        <div class="empty">
-            Loading trade engine...
+        <div class="trade-panel">
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Mode</div>
+                <div class="trade-stat-value" id="paperMode">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Balance</div>
+                <div class="trade-stat-value" id="paperBalance">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Open Positions</div>
+                <div class="trade-stat-value" id="paperPositions">—</div>
+            </div>
+
+            <div class="trade-stat">
+                <div class="trade-stat-label">Daily PnL</div>
+                <div class="trade-stat-value" id="paperPnl">—</div>
+            </div>
+
         </div>
 
     </section>
 
 
-    <!-- BINANCE POST -->
+    <!-- POST GENERATOR -->
 
     <div class="section-title">
 
@@ -3149,8 +2739,8 @@ DASHBOARD_HTML = r"""
         <div
             style="
                 display:flex;
-                flex-wrap:wrap;
                 gap:10px;
+                flex-wrap:wrap;
                 margin-bottom:12px;
             "
         >
@@ -3170,10 +2760,9 @@ DASHBOARD_HTML = r"""
 
             <span
                 id="postStatus"
+                class="updated"
                 style="
                     align-self:center;
-                    color:#7c899e;
-                    font-size:11px;
                 "
             ></span>
 
@@ -3183,8 +2772,33 @@ DASHBOARD_HTML = r"""
         <textarea
             id="binancePost"
             placeholder="
-Generated Binance community post will appear here...
-"
+Your generated Binance community post will appear here...
+            "
+            style="
+                width:100%;
+                min-height:260px;
+                resize:vertical;
+                padding:14px;
+                border-radius:12px;
+                border:
+                    1px solid
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.10
+                    );
+                background:
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.045
+                    );
+                color:#f4f7fb;
+                outline:none;
+                font-size:14px;
+            "
         ></textarea>
 
     </section>
@@ -3195,22 +2809,17 @@ Generated Binance community post will appear here...
 
 <script>
 
-
-// =========================================================
-// STATE
-// =========================================================
-
 let allSignals = [];
-
 let searchTimer = null;
-
-let selectedCoin = "BTC";
-
-let chartInterval = "5";
+let autoPollTimer = null;
+let selectedAnalysisData = null;
+let selectedCoin = "";
+let selectedMarket = "futures";
+let currentChartInterval = "5";
 
 
 // =========================================================
-// UTILS
+// UTILITIES
 // =========================================================
 
 function number(
@@ -3235,11 +2844,8 @@ function money(
 ) {
 
     if (
-        value ===
-            null
-        ||
-        value ===
-            undefined
+        value === null ||
+        value === undefined
     ) {
 
         return "-";
@@ -3252,9 +2858,7 @@ function money(
         );
 
     if (
-        Number.isNaN(
-            n
-        )
+        Number.isNaN(n)
     ) {
 
         return "-";
@@ -3281,47 +2885,38 @@ function compact(
         );
 
     if (
-        n >=
-        1_000_000_000
+        n >= 1_000_000_000
     ) {
 
         return (
-            n
-            /
+            n /
             1_000_000_000
-        ).toFixed(
-            2
-        ) + "B";
+        ).toFixed(2) +
+        "B";
 
     }
 
     if (
-        n >=
-        1_000_000
+        n >= 1_000_000
     ) {
 
         return (
-            n
-            /
+            n /
             1_000_000
-        ).toFixed(
-            2
-        ) + "M";
+        ).toFixed(2) +
+        "M";
 
     }
 
     if (
-        n >=
-        1_000
+        n >= 1_000
     ) {
 
         return (
-            n
-            /
+            n /
             1_000
-        ).toFixed(
-            2
-        ) + "K";
+        ).toFixed(2) +
+        "K";
 
     }
 
@@ -3369,8 +2964,32 @@ function directionClass(
         direction ===
         "LONG"
     )
-        ? "direction-long"
-        : "direction-short";
+        ? "long-text"
+        : "short-text";
+}
+
+
+function confidenceClass(
+    confidence
+) {
+
+    if (
+        confidence >= 99
+    ) {
+
+        return "extreme";
+
+    }
+
+    if (
+        confidence >= 95
+    ) {
+
+        return "very-high";
+
+    }
+
+    return "high";
 }
 
 
@@ -3440,27 +3059,22 @@ async function searchCoins(
             await response.json();
 
         if (
-            !response.ok
-            ||
+            !response.ok ||
             !data.success
         ) {
 
             throw new Error(
-                data.detail
-                ||
+                data.detail ||
                 "Search failed"
             );
 
         }
 
         const coins =
-            data.coins
-            ||
-            [];
+            data.coins || [];
 
         if (
-            coins.length ===
-            0
+            coins.length === 0
         ) {
 
             suggestions.innerHTML =
@@ -3478,70 +3092,56 @@ async function searchCoins(
         }
 
         suggestions.innerHTML =
-            coins
-                .map(
-                    item => {
+            coins.map(
+                item => {
 
-                        const coin =
-                            escapeHtml(
-                                item.coin
-                                ||
-                                String(
-                                    item.symbol
-                                    ||
-                                    ""
-                                )
-                                .replace(
-                                    /USDT$/i,
-                                    ""
-                                )
-                            );
+                    const coin =
+                        escapeHtml(
+                            item.coin ||
+                            String(
+                                item.symbol ||
+                                ""
+                            )
+                            .replace(
+                                /USDT$/i,
+                                ""
+                            )
+                        );
 
-                        return `
+                    const symbol =
+                        escapeHtml(
+                            item.symbol ||
+                            `${coin}USDT`
+                        );
+
+                    return `
                         <div
                             class="suggestion"
-                            onclick="
-                                selectSearchCoin(
-                                    '${coin}'
-                                )
-                            "
+                            onclick="selectSearchCoin('${coin}')"
                         >
                             <strong>
                                 $${coin}
                             </strong>
 
-                            <span
-                                style="
-                                    color:#748198;
-                                    font-size:10px;
-                                "
-                            >
-                                ${escapeHtml(
-                                    item.symbol
-                                    ||
-                                    `${coin}USDT`
-                                )}
+                            <span class="updated">
+                                ${symbol}
                             </span>
                         </div>
-                        `;
+                    `;
 
-                    }
-                )
-                .join("");
+                }
+            ).join("");
 
         suggestions.style.display =
             "block";
 
-    } catch (
-        err
-    ) {
+    } catch (err) {
 
         suggestions.innerHTML =
             `
             <div class="empty">
                 ${escapeHtml(
-                    err.message
-                    ||
+                    err.message ||
                     "Search unavailable."
                 )}
             </div>
@@ -3549,6 +3149,7 @@ async function searchCoins(
 
         suggestions.style.display =
             "block";
+
     }
 }
 
@@ -3579,11 +3180,12 @@ function selectSearchCoin(
         "none";
 
     analyzeSearchCoin();
+
 }
 
 
 // =========================================================
-// SELECTED ANALYSIS
+// SELECTED COIN ANALYSIS
 // =========================================================
 
 async function analyzeSearchCoin() {
@@ -3595,9 +3197,7 @@ async function analyzeSearchCoin() {
 
     const coin =
         String(
-            input.value
-            ||
-            ""
+            input.value || ""
         )
         .toUpperCase()
         .replace(
@@ -3614,11 +3214,6 @@ async function analyzeSearchCoin() {
 
     }
 
-    selectedCoin =
-        coin;
-
-    renderTradingView();
-
     const container =
         document.getElementById(
             "selectedAnalysis"
@@ -3627,9 +3222,11 @@ async function analyzeSearchCoin() {
     container.innerHTML =
         `
         <div class="empty">
-            Loading ${escapeHtml(
+            Loading
+            ${escapeHtml(
                 coin
-            )} full analysis...
+            )}
+            Futures analysis...
         </div>
         `;
 
@@ -3650,130 +3247,51 @@ async function analyzeSearchCoin() {
         ) {
 
             throw new Error(
-                result.detail
-                ||
-                result.error
-                ||
+                result.detail ||
+                result.error ||
                 "Analysis failed"
             );
 
         }
 
         const data =
-            result.data
-            ||
-            result.analysis
-            ||
+            result.data ||
+            result.analysis ||
             result;
 
-        // -----------------------------------------
-        // Pass the exact selected analysis through
-        // the same backend trade gate endpoint.
-        // -----------------------------------------
-
-        let gated =
-            null;
-
-        try {
-
-            const gateResponse =
-                await fetch(
-                    "/api/trade/evaluate",
-                    {
-                        method:
-                            "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-                        },
-
-                        body:
-                            JSON.stringify(
-                                data
-                            ),
-                    }
-                );
-
-            const gateJson =
-                await gateResponse.json();
-
-            if (
-                gateResponse.ok
-                &&
-                gateJson.success
-            ) {
-
-                gated =
-                    gateJson.result;
-
-            }
-
-        } catch (
-            _
-        ) {
-            gated = null;
-        }
-
-        if (
-            gated
-        ) {
-
-            data.trade_score =
-                number(
-                    gated.trade_score
-                );
-
-            data.passed_confirmations =
-                number(
-                    gated.passed_confirmations
-                );
-
-            data.total_confirmations =
-                number(
-                    gated.total_confirmations
-                )
-                ||
-                24;
-
-            data.trade_decision =
-                gated.decision
-                ||
-                "NO_TRADE";
-
-            data.critical_failures =
-                gated.critical_failures
-                ||
-                [];
-
-        }
+        selectedAnalysisData = data;
+        selectedCoin = coin;
+        selectedMarket = "futures";
 
         renderSelectedAnalysis(
             data
         );
 
-    } catch (
-        err
-    ) {
+        updateChartLevels(data);
+        renderTradingViewChart(
+            coin,
+            selectedMarket,
+            currentChartInterval
+        );
+
+        await evaluateSelectedTrade(data);
+
+    } catch (err) {
 
         container.innerHTML =
             `
             <div class="empty">
                 ${escapeHtml(
-                    err.message
-                    ||
+                    err.message ||
                     "Unable to analyze coin."
                 )}
             </div>
             `;
 
     }
+
 }
 
-
-// =========================================================
-// SELECTED ANALYSIS RENDER
-// =========================================================
 
 function renderSelectedAnalysis(
     data
@@ -3785,331 +3303,207 @@ function renderSelectedAnalysis(
         );
 
     const timeframes =
-        data.timeframes
-        ||
+        data.timeframes ||
         {};
 
-    const order = [
+    const timeframeOrder = [
         "5m",
         "15m",
         "1h",
-        "4h",
+        "4h"
     ];
 
     const cards =
-        order
+        timeframeOrder
             .map(
-                timeframe => {
+                tf => {
 
                     const item =
                         timeframes[
-                            timeframe
+                            tf
                         ];
 
                     if (
                         !item
                     ) {
 
-                        return `
-                        <div class="tf">
-
-                            <strong>
-                                ${timeframe}
-                            </strong>
-
-                            <div
-                                style="
-                                    margin-top:6px;
-                                    color:#748198;
-                                    font-size:11px;
-                                "
-                            >
-                                No backend data
-                            </div>
-
-                        </div>
-                        `;
+                        return "";
 
                     }
 
                     const analysis =
-                        item.analysis
-                        ||
+                        item.analysis ||
                         {};
 
                     const score =
-                        item.score
-                        ||
+                        item.score ||
                         {};
 
                     const direction =
-                        score.direction
-                        ||
-                        analysis.direction
-                        ||
+                        score.direction ||
+                        analysis.direction ||
                         "NEUTRAL";
 
                     return `
-                    <div class="tf">
+                        <div class="tf-card">
 
-                        <div
-                            class="tf-head"
-                        >
+                            <div class="tf-head">
 
-                            <strong>
-                                ${timeframe}
-                            </strong>
+                                <div class="tf-name">
+                                    ${tf}
+                                </div>
 
-                            <span
-                                class="${directionClass(
-                                    direction
-                                )}"
+                                <div
+                                    class="
+                                        tf-dir
+                                        ${directionClass(
+                                            direction
+                                        )}
+                                    "
+                                >
+                                    ${number(
+                                        score.confidence ||
+                                        0
+                                    ).toFixed(0)}%
+                                </div>
+
+                            </div>
+
+                            <div
+                                class="
+                                    tf-dir
+                                    ${directionClass(
+                                        direction
+                                    )}
+                                "
+                                style="
+                                    margin-top:6px;
+                                "
                             >
-                                ${number(
-                                    score.confidence
-                                    ||
-                                    0
-                                ).toFixed(
-                                    1
-                                )}%
-                            </span>
-
-                        </div>
-
-                        <div
-                            class="${directionClass(
-                                direction
-                            )}"
-                            style="
-                                margin-top:5px;
-                                font-size:12px;
-                                font-weight:900;
-                            "
-                        >
-                            ${escapeHtml(
-                                direction
-                            )}
-                        </div>
-
-                        <div
-                            style="
-                                display:flex;
-                                justify-content:space-between;
-                                margin-top:8px;
-                                color:#7d899c;
-                                font-size:10px;
-                            "
-                        >
-                            <span>
-                                Price
-                            </span>
-
-                            <span>
-                                ${money(
-                                    analysis.price
+                                ${escapeHtml(
+                                    direction
                                 )}
-                            </span>
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    Price
+                                </span>
+
+                                <span>
+                                    ${money(
+                                        analysis.price
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    EMA20
+                                </span>
+
+                                <span>
+                                    ${money(
+                                        analysis.ema20
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    EMA50
+                                </span>
+
+                                <span>
+                                    ${money(
+                                        analysis.ema50
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    Momentum
+                                </span>
+
+                                <span>
+                                    ${number(
+                                        analysis.momentum
+                                    ).toFixed(4)}%
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    Volume
+                                </span>
+
+                                <span>
+                                    ${number(
+                                        analysis.volume_ratio
+                                    ).toFixed(2)}x
+                                </span>
+
+                            </div>
+
                         </div>
-
-                        <div
-                            style="
-                                display:flex;
-                                justify-content:space-between;
-                                margin-top:5px;
-                                color:#7d899c;
-                                font-size:10px;
-                            "
-                        >
-                            <span>
-                                EMA20
-                            </span>
-
-                            <span>
-                                ${money(
-                                    analysis.ema20
-                                )}
-                            </span>
-                        </div>
-
-                        <div
-                            style="
-                                display:flex;
-                                justify-content:space-between;
-                                margin-top:5px;
-                                color:#7d899c;
-                                font-size:10px;
-                            "
-                        >
-                            <span>
-                                EMA50
-                            </span>
-
-                            <span>
-                                ${money(
-                                    analysis.ema50
-                                )}
-                            </span>
-                        </div>
-
-                    </div>
                     `;
 
                 }
             )
             .join("");
 
-    const scannerConfidence =
+
+    const confidence =
         number(
-            data.scanner_confidence
-            ||
             data.confidence
         );
 
-    const tradeScore =
-        number(
-            data.trade_score
-        );
-
-    const passed =
-        number(
-            data.passed_confirmations
-        );
-
-    const total =
-        number(
-            data.total_confirmations
-        )
-        ||
-        24;
-
-    const decision =
-        data.trade_decision
-        ||
-        "NOT_EVALUATED";
-
     const direction =
-        data.direction
-        ||
+        data.direction ||
         "NEUTRAL";
 
 
     container.innerHTML =
         `
+
         <div>
 
             <div
-                class="badges"
+                style="
+                    display:flex;
+                    gap:10px;
+                    flex-wrap:wrap;
+                    margin-bottom:14px;
+                "
             >
 
                 <span class="badge">
-                    $${escapeHtml(
-                        data.coin
-                        ||
-                        data.symbol
-                        ||
-                        selectedCoin
-                    )}
-                </span>
-
-                <span
-                    class="${directionClass(
-                        direction
-                    )}"
-                >
                     ${escapeHtml(
                         direction
                     )}
                 </span>
 
                 <span class="badge">
-                    Scanner:
-                    ${scannerConfidence.toFixed(
+                    Confidence:
+                    ${confidence.toFixed(
                         1
                     )}%
                 </span>
-
-                <span class="badge">
-                    Trade Quality:
-                    ${tradeScore.toFixed(
-                        1
-                    )}%
-                </span>
-
-                <span class="badge">
-                    Confirmations:
-                    ${passed}/${total}
-                </span>
-
-            </div>
-
-
-            <div
-                class="trade-gate"
-            >
-
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        Scanner Confidence
-                    </div>
-
-                    <div class="gate-value">
-                        ${scannerConfidence.toFixed(
-                            1
-                        )}%
-                    </div>
-
-                </div>
-
-
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        Trade Quality
-                    </div>
-
-                    <div class="gate-value">
-                        ${tradeScore.toFixed(
-                            1
-                        )}%
-                    </div>
-
-                </div>
-
-
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        24-Point Gate
-                    </div>
-
-                    <div class="gate-value">
-                        ${passed}/${total}
-                    </div>
-
-                </div>
-
-
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        Decision
-                    </div>
-
-                    <div class="gate-value">
-                        ${escapeHtml(
-                            decision
-                        )}
-                    </div>
-
-                </div>
-
-            </div>
-
-
-            <div
-                class="badges"
-            >
 
                 <span class="badge">
                     Entry:
@@ -4126,74 +3520,20 @@ function renderSelectedAnalysis(
                 </span>
 
                 <span class="badge">
-                    TP1:
-                    ${money(
-                        data.tp1
-                    )}
-                </span>
-
-                <span class="badge">
-                    TP2:
-                    ${money(
-                        data.tp2
-                    )}
-                </span>
-
-                <span class="badge">
-                    TP3:
-                    ${money(
-                        data.tp3
-                    )}
+                    R:R:
+                    ${number(
+                        data.risk_reward
+                    ).toFixed(2)}R
                 </span>
 
             </div>
 
 
-            <div
-                class="timeframes"
-            >
+            <div class="timeframes">
 
                 ${cards}
 
             </div>
-
-
-            ${
-                (
-                    data.critical_failures
-                    ||
-                    []
-                ).length
-                    ?
-                    `
-                    <div
-                        class="badges"
-                    >
-
-                        <span
-                            class="badge"
-                            style="
-                                color:#ff8a80;
-                            "
-                        >
-                            Critical:
-                            ${escapeHtml(
-                                (
-                                    data.critical_failures
-                                    ||
-                                    []
-                                )
-                                .join(
-                                    ", "
-                                )
-                            )}
-                        </span>
-
-                    </div>
-                    `
-                    :
-                    ""
-            }
 
         </div>
         `;
@@ -4201,7 +3541,775 @@ function renderSelectedAnalysis(
 
 
 // =========================================================
-// SIGNALS FROM BACKEND ONLY
+// TRADE GATE + CHART
+// =========================================================
+
+function decisionClass(
+    decision
+) {
+
+    const normalized =
+        String(
+            decision || ""
+        ).toUpperCase();
+
+    if (
+        normalized ===
+        "EXECUTE_CANDIDATE"
+    ) {
+
+        return "decision-execute";
+
+    }
+
+    if (
+        normalized ===
+        "WATCH"
+    ) {
+
+        return "decision-watch";
+
+    }
+
+    return "decision-no-trade";
+}
+
+
+function renderTradeGate(
+    result
+) {
+
+    const container =
+        document.getElementById(
+            "tradeGate"
+        );
+
+    if (!result) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                No trade-gate result available.
+            </div>
+            `;
+
+        return;
+
+    }
+
+    const decision =
+        result.decision ||
+        "NO_TRADE";
+
+    const score =
+        number(
+            result.trade_score
+        );
+
+    const scannerConfidence =
+        number(
+            result.scanner_confidence
+        );
+
+    const passed =
+        number(
+            result.passed_confirmations
+        );
+
+    const total =
+        number(
+            result.total_confirmations ||
+            24
+        );
+
+    const criticalFailures =
+        result.critical_failures ||
+        [];
+
+    const decisionLabel =
+        decision ===
+        "EXECUTE_CANDIDATE"
+            ? "EXECUTE CANDIDATE"
+            : decision ===
+              "WATCH"
+                ? "WATCH"
+                : "NO TRADE";
+
+    const details =
+        criticalFailures.length
+            ? criticalFailures
+                .slice(
+                    0,
+                    6
+                )
+                .map(
+                    item =>
+                        `
+                        <span class="badge">
+                            ${escapeHtml(
+                                item
+                            )}
+                        </span>
+                        `
+                )
+                .join("")
+            : `
+                <span class="badge">
+                    No critical failures
+                </span>
+            `;
+
+    container.innerHTML =
+        `
+        <div>
+
+            <div
+                style="
+                    display:flex;
+                    justify-content:
+                        space-between;
+                    align-items:center;
+                    gap:10px;
+                    flex-wrap:wrap;
+                "
+            >
+
+                <div>
+
+                    <div
+                        style="
+                            font-size:19px;
+                            font-weight:900;
+                        "
+                    >
+                        $${escapeHtml(
+                            selectedCoin
+                        )}
+                    </div>
+
+                    <div
+                        class="
+                            ${decisionClass(
+                                decision
+                            )}
+                        "
+                        style="
+                            font-size:14px;
+                            font-weight:900;
+                            margin-top:5px;
+                        "
+                    >
+                        ${decisionLabel}
+                    </div>
+
+                </div>
+
+                <div
+                    class="
+                        confidence
+                        ${confidenceClass(
+                            score
+                        )}
+                    "
+                >
+                    ${score.toFixed(1)}%
+                </div>
+
+            </div>
+
+
+            <div class="trade-panel">
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Trade Quality
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${score.toFixed(1)}%
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Scanner Confidence
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${scannerConfidence.toFixed(1)}%
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Confirmations
+                    </div>
+
+                    <div class="trade-stat-value">
+                        ${passed}/${total}
+                    </div>
+
+                </div>
+
+
+                <div class="trade-stat">
+
+                    <div class="trade-stat-label">
+                        Mode
+                    </div>
+
+                    <div class="trade-stat-value">
+                        PAPER
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div
+                class="signal-footer"
+                style="margin-top:14px;"
+            >
+
+                ${details}
+
+            </div>
+
+
+            <div
+                class="updated"
+                style="
+                    margin-top:12px;
+                "
+            >
+                95%+ is an execution candidate only when the
+                programmed critical gates pass. It does not
+                guarantee profit.
+            </div>
+
+        </div>
+        `;
+
+}
+
+
+async function evaluateSelectedTrade(
+    analysis
+) {
+
+    const container =
+        document.getElementById(
+            "tradeGate"
+        );
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/trade/evaluate",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+                    body: JSON.stringify(
+                        analysis
+                    )
+                }
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            throw new Error(
+                data.detail ||
+                "Trade evaluation failed."
+            );
+
+        }
+
+        renderTradeGate(
+            data.result
+        );
+
+    } catch (err) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                ${escapeHtml(
+                    err.message ||
+                    "Trade gate unavailable."
+                )}
+            </div>
+            `;
+
+    }
+}
+
+
+function updateChartLevels(
+    data
+) {
+
+    document.getElementById(
+        "chartEntry"
+    ).textContent =
+        money(
+            data.entry
+        );
+
+    document.getElementById(
+        "chartSL"
+    ).textContent =
+        money(
+            data.stop_loss
+        );
+
+    document.getElementById(
+        "chartTP1"
+    ).textContent =
+        money(
+            data.tp1
+        );
+
+    document.getElementById(
+        "chartTP2"
+    ).textContent =
+        money(
+            data.tp2
+        );
+
+    document.getElementById(
+        "chartTP3"
+    ).textContent =
+        money(
+            data.tp3
+        );
+
+}
+
+
+function tradingViewSymbol(
+    coin,
+    market
+) {
+
+    const clean =
+        String(
+            coin || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
+
+    if (
+        market ===
+        "futures"
+    ) {
+
+        return `BINANCE:${clean}USDT.P`;
+
+    }
+
+    return `BINANCE:${clean}USDT`;
+}
+
+
+function renderTradingViewChart(
+    coin,
+    market = "futures",
+    interval = "5"
+) {
+
+    const container =
+        document.getElementById(
+            "tradingviewChart"
+        );
+
+    const label =
+        document.getElementById(
+            "chartSymbolLabel"
+        );
+
+    if (!container) {
+        return;
+    }
+
+    const clean =
+        String(
+            coin || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
+
+    if (!clean) {
+
+        container.innerHTML =
+            `
+            <div class="empty">
+                Select a coin to load TradingView.
+            </div>
+            `;
+
+        return;
+
+    }
+
+    label.textContent =
+        `$${clean}`;
+
+    container.innerHTML =
+        `
+        <div
+            class="tradingview-widget-container"
+            style="
+                height:100%;
+                width:100%;
+            "
+        >
+
+            <div
+                class="tradingview-widget-container__widget"
+                style="
+                    height:100%;
+                    width:100%;
+                "
+            ></div>
+
+            <div
+                class="tradingview-widget-copyright"
+                style="
+                    padding:4px 8px;
+                    font-size:9px;
+                "
+            >
+                <a
+                    href="https://www.tradingview.com/"
+                    rel="noopener nofollow"
+                    target="_blank"
+                >
+                    TradingView
+                </a>
+            </div>
+
+        </div>
+        `;
+
+    const widgetContainer =
+        container.querySelector(
+            ".tradingview-widget-container"
+        );
+
+    const widget =
+        document.createElement(
+            "script"
+        );
+
+    widget.type =
+        "text/javascript";
+
+    widget.src =
+        "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+
+    widget.async =
+        true;
+
+    const widgetConfig = {
+
+        autosize: true,
+
+        symbol:
+            tradingViewSymbol(
+                clean,
+                market
+            ),
+
+        interval:
+            interval,
+
+        timezone:
+            "exchange",
+
+        theme:
+            "dark",
+
+        style:
+            "1",
+
+        locale:
+            "en",
+
+        allow_symbol_change:
+            true,
+
+        hide_side_toolbar:
+            false,
+
+        hide_top_toolbar:
+            false,
+
+        hide_legend:
+            false,
+
+        hide_volume:
+            false,
+
+        save_image:
+            true,
+
+        withdateranges:
+            true,
+
+        hotlist:
+            false,
+
+        calendar:
+            false,
+
+        details:
+            false,
+
+        studies: [
+            "Moving Average Exponential@tv-basicstudies",
+            "Moving Average Exponential@tv-basicstudies",
+            "RSI@tv-basicstudies"
+        ],
+
+        support_host:
+            "https://www.tradingview.com"
+
+    };
+
+    widget.innerHTML =
+        JSON.stringify(
+            widgetConfig
+        );
+
+    widgetContainer.appendChild(
+        widget
+    );
+
+
+    document
+        .querySelectorAll(
+            ".chart-interval"
+        )
+        .forEach(
+            button => {
+
+                button.classList.toggle(
+                    "active",
+                    button.dataset.interval ===
+                        String(
+                            interval
+                        )
+                );
+
+            }
+        );
+}
+
+
+function setChartInterval(
+    interval,
+    button
+) {
+
+    currentChartInterval =
+        String(
+            interval
+        );
+
+    document
+        .querySelectorAll(
+            ".chart-interval"
+        )
+        .forEach(
+            item => {
+                item.classList.remove(
+                    "active"
+                );
+            }
+        );
+
+    if (button) {
+
+        button.classList.add(
+            "active"
+        );
+
+    }
+
+    if (
+        selectedCoin
+    ) {
+
+        renderTradingViewChart(
+            selectedCoin,
+            selectedMarket,
+            currentChartInterval
+        );
+
+    }
+
+}
+
+
+async function refreshPaperStatus() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/trade/status"
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            return;
+
+        }
+
+        const engine =
+            data.engine ||
+            {};
+
+        document.getElementById(
+            "paperMode"
+        ).textContent =
+            String(
+                engine.mode ||
+                "paper"
+            ).toUpperCase();
+
+        document.getElementById(
+            "paperBalance"
+        ).textContent =
+            `$${number(
+                engine.balance
+            ).toFixed(2)}`;
+
+        document.getElementById(
+            "paperPositions"
+        ).textContent =
+            `${number(
+                engine.open_positions
+            )} / ${number(
+                engine.max_open_positions
+            )}`;
+
+        document.getElementById(
+            "paperPnl"
+        ).textContent =
+            `$${number(
+                engine.daily_realized_pnl
+            ).toFixed(2)}`;
+
+    } catch (err) {
+
+        // Keep dashboard alive if the paper
+        // trading API is temporarily unavailable.
+
+    }
+
+}
+
+
+async function refreshAutoTradeGate() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/auto/trades"
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            return;
+
+        }
+
+        const evaluations =
+            data.trade_evaluations ||
+            [];
+
+        const best =
+            evaluations
+                .slice()
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        number(
+                            b.trade_score
+                        )
+                        -
+                        number(
+                            a.trade_score
+                        )
+                )[0];
+
+        if (
+            best &&
+            selectedCoin
+            &&
+            best.coin ===
+                selectedCoin
+        ) {
+
+            renderTradeGate(
+                best
+            );
+
+        }
+
+    } catch (err) {
+
+        // Ignore background status failures.
+
+    }
+
+}
+
+
+// =========================================================
+// AUTO SIGNALS
 // =========================================================
 
 function renderSignals() {
@@ -4229,44 +4337,38 @@ function renderSignals() {
 
                 const confidence =
                     number(
-                        signal.scanner_confidence
-                        ||
                         signal.confidence
                     );
 
                 const direction =
-                    signal.direction
-                    ||
-                    "NEUTRAL";
+                    signal.direction;
 
                 return (
-                    confidence
-                    >=
-                    threshold
+                    confidence >=
+                        threshold
                     &&
                     (
-                        directionFilter
-                        ===
-                        "ALL"
+                        directionFilter ===
+                            "ALL"
                         ||
-                        direction
-                        ===
-                        directionFilter
+                        direction ===
+                            directionFilter
                     )
                 );
             }
         );
 
+
     if (
-        filtered.length ===
-        0
+        filtered.length === 0
     ) {
 
         container.innerHTML =
             `
             <div class="card empty">
-                No completed backend scan
-                currently matches the filter.
+                No matching
+                ${threshold}%+
+                signals right now.
             </div>
             `;
 
@@ -4280,252 +4382,300 @@ function renderSignals() {
             .map(
                 signal => {
 
-                    const scannerConfidence =
+                    const confidence =
                         number(
-                            signal.scanner_confidence
-                            ||
                             signal.confidence
                         );
 
-                    const tradeScore =
-                        number(
-                            signal.trade_score
-                        );
-
-                    const passed =
-                        number(
-                            signal.passed_confirmations
-                        );
-
-                    const total =
-                        number(
-                            signal.total_confirmations
-                        )
-                        ||
-                        24;
-
                     const direction =
-                        signal.direction
-                        ||
-                        "NEUTRAL";
+                        signal.direction;
 
-                    const decision =
-                        signal.trade_decision
-                        ||
-                        "NO_TRADE";
+                    const cClass =
+                        confidenceClass(
+                            confidence
+                        );
 
-                    const cardClass =
+                    const dClass =
                         direction ===
                         "LONG"
                             ? "long"
-                            :
-                            direction ===
-                            "SHORT"
-                                ? "short"
+                            : "short";
+
+                    const level =
+                        signal.confidence_level ||
+                        (
+                            confidence >=
+                            99
+                                ? "EXTREME"
                                 :
-                                "";
+                            confidence >=
+                            95
+                                ? "VERY HIGH"
+                                :
+                            confidence >=
+                            90
+                                ? "HIGH"
+                                :
+                            "WATCH"
+                        );
+
+                    const confirmation =
+                        number(
+                            signal.confirmation_percent
+                        );
+
+                    const reasons =
+                        (
+                            signal.reasons ||
+                            []
+                        )
+                        .slice(
+                            0,
+                            4
+                        )
+                        .map(
+                            reason =>
+                                `
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        reason
+                                    )}
+                                </span>
+                                `
+                        )
+                        .join("");
+
 
                     return `
-                    <div
-                        class="
-                            card
-                            signal-card
-                            ${cardClass}
-                        "
-                    >
-
                         <div
-                            class="signal-header"
+                            class="
+                                card
+                                signal-card
+                                ${dClass}
+                            "
                         >
-
-                            <div>
-
-                                <div
-                                    class="symbol"
-                                >
-                                    $${escapeHtml(
-                                        signal.coin
-                                        ||
-                                        String(
-                                            signal.symbol
-                                            ||
-                                            ""
-                                        )
-                                        .replace(
-                                            /USDT$/i,
-                                            ""
-                                        )
-                                    )}
-                                </div>
-
-                                <div
-                                    class="${directionClass(
-                                        direction
-                                    )}"
-                                >
-                                    ${escapeHtml(
-                                        direction
-                                    )}
-                                </div>
-
-                            </div>
-
 
                             <div
-                                class="score-box"
+                                class="
+                                    signal-top
+                                "
                             >
-                                ${tradeScore.toFixed(
-                                    1
-                                )}%
-                            </div>
 
-                        </div>
+                                <div>
 
+                                    <div class="symbol">
 
-                        <div
-                            class="badges"
-                        >
-
-                            <span class="badge">
-                                FULLY SCANNED
-                            </span>
-
-                            <span class="badge">
-                                Scanner
-                                ${scannerConfidence.toFixed(
-                                    1
-                                )}%
-                            </span>
-
-                            <span class="badge">
-                                Gate
-                                ${passed}/${total}
-                            </span>
-
-                            <span class="badge">
-                                ${escapeHtml(
-                                    decision
-                                )}
-                            </span>
-
-                        </div>
-
-
-                        <div
-                            class="grid-4"
-                        >
-
-                            <div class="mini">
-
-                                <div
-                                    class="mini-label"
-                                >
-                                    Entry
-                                </div>
-
-                                <div
-                                    class="mini-value"
-                                >
-                                    ${money(
-                                        signal.entry
-                                    )}
-                                </div>
-
-                            </div>
-
-
-                            <div class="mini">
-
-                                <div
-                                    class="mini-label"
-                                >
-                                    SL
-                                </div>
-
-                                <div
-                                    class="mini-value"
-                                >
-                                    ${money(
-                                        signal.stop_loss
-                                    )}
-                                </div>
-
-                            </div>
-
-
-                            <div class="mini">
-
-                                <div
-                                    class="mini-label"
-                                >
-                                    TP1
-                                </div>
-
-                                <div
-                                    class="mini-value"
-                                >
-                                    ${money(
-                                        signal.tp1
-                                    )}
-                                </div>
-
-                            </div>
-
-
-                            <div class="mini">
-
-                                <div
-                                    class="mini-label"
-                                >
-                                    R:R
-                                </div>
-
-                                <div
-                                    class="mini-value"
-                                >
-                                    ${
-                                        number(
-                                            signal.risk_reward
-                                        ).toFixed(
-                                            2
-                                        )
-                                    }R
-                                </div>
-
-                            </div>
-
-                        </div>
-
-
-                        <div
-                            class="badges"
-                        >
-
-                            <button
-                                class="btn-secondary"
-                                onclick="
-                                    inspectBackendCoin(
-                                        '${escapeHtml(
-                                            signal.coin
-                                            ||
+                                        ${escapeHtml(
+                                            signal.coin ||
                                             String(
-                                                signal.symbol
-                                                ||
+                                                signal.symbol ||
                                                 ""
                                             )
                                             .replace(
                                                 /USDT$/i,
                                                 ""
                                             )
-                                    )}'
-                                "
-                            >
-                                Open Analysis
-                            </button>
+                                        )}
+
+                                    </div>
+
+                                    <div
+                                        class="
+                                            direction
+                                            ${
+                                                direction ===
+                                                "LONG"
+                                                    ? "long-text"
+                                                    : "short-text"
+                                            }
+                                        "
+                                    >
+                                        ${escapeHtml(
+                                            direction
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        confidence
+                                        ${cClass}
+                                    "
+                                >
+                                    ${confidence.toFixed(
+                                        1
+                                    )}%
+                                </div>
+
+                            </div>
+
+
+                            <div class="signal-footer">
+
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        level
+                                    )}
+                                </span>
+
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        signal.market ||
+                                        "futures"
+                                    )}
+                                </span>
+
+                                ${
+                                    confirmation > 0
+                                        ? `
+                                            <span class="badge">
+                                                ${confirmation.toFixed(
+                                                    0
+                                                )}% confirmations
+                                            </span>
+                                        `
+                                        : ""
+                                }
+
+                            </div>
+
+
+                            <div class="signal-grid">
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Price
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.price
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Entry
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.entry
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Stop Loss
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.stop_loss
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        R:R
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${number(
+                                            signal.risk_reward
+                                        ).toFixed(
+                                            2
+                                        )}R
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP1
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp1
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP2
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp2
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP3
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp3
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        24H Volume
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${compact(
+                                            signal.quote_volume_24h
+                                        )}
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="signal-footer">
+
+                                ${reasons}
+
+                            </div>
 
                         </div>
-
-                    </div>
                     `;
 
                 }
@@ -4535,424 +4685,318 @@ function renderSignals() {
 
 
 // =========================================================
-// OPEN BACKEND-SCANNED COIN
+// AUTO REFRESH
 // =========================================================
 
-function inspectBackendCoin(
-    coin
-) {
-
-    const input =
-        document.getElementById(
-            "coinSearch"
-        );
-
-    input.value =
-        String(
-            coin
-        )
-        .toUpperCase()
-        .replace(
-            /USDT$/i,
-            ""
-        );
-
-    analyzeSearchCoin();
-
-}
-
-
-// =========================================================
-// FULL BACKEND SNAPSHOT
-// =========================================================
-
-async function refreshFullScan() {
+async function refreshAutoSignals() {
 
     try {
 
         const response =
             await fetch(
-                "/api/auto/results?min_confidence=90"
+                "/api/auto/signals?min_confidence=90"
             );
 
         const data =
             await response.json();
 
         if (
-            !response.ok
-            ||
+            !response.ok ||
             !data.success
         ) {
 
             throw new Error(
-                data.detail
-                ||
-                "Full scan unavailable."
+                data.detail ||
+                "Auto signal request failed."
             );
 
         }
 
+        allSignals =
+            data.signals || [];
+
         document.getElementById(
-            "fullUniverse"
+            "scanned"
         ).textContent =
-            data.universe_total
-            ||
+            data.scanned || 0;
+
+        document.getElementById(
+            "count90"
+        ).textContent =
+            allSignals.filter(
+                item =>
+                    number(
+                        item.confidence
+                    ) >= 90
+            ).length;
+
+        document.getElementById(
+            "count95"
+        ).textContent =
+            allSignals.filter(
+                item =>
+                    number(
+                        item.confidence
+                    ) >= 95
+            ).length;
+
+        document.getElementById(
+            "count99"
+        ).textContent =
+            allSignals.filter(
+                item =>
+                    number(
+                        item.confidence
+                    ) >= 99
+            ).length;
+
+        document.getElementById(
+            "lastUpdated"
+        ).textContent =
+            "Updated " +
+            new Date()
+                .toLocaleTimeString();
+
+        renderSignals();
+
+    } catch (err) {
+
+        document.getElementById(
+            "signalError"
+        ).textContent =
+            err.message ||
+            "Unable to refresh signals.";
+
+    }
+
+    refreshAutoStatus();
+
+    refreshCandidates();
+
+    refreshAutoTradeGate();
+
+    refreshPaperStatus();
+}
+
+
+// =========================================================
+// AUTO STATUS
+// =========================================================
+
+async function refreshAutoStatus() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/auto/status"
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+            return;
+        }
+
+        document.getElementById(
+            "autoUniverse"
+        ).textContent =
+            data.scanned_universe ||
             0;
 
         document.getElementById(
-            "fullCompleted"
+            "autoDeep"
         ).textContent =
-            data.completed_symbols
-            ||
+            data.deep_analyzed ||
             0;
 
         document.getElementById(
-            "fullCompletion"
-        ).textContent =
-            `${number(
-                data.completion_percent
-            ).toFixed(
-                2
-            )}%`;
-
-        document.getElementById(
-            "fullNextBatch"
+            "autoNext"
         ).textContent =
             `${data.next_scan_in_seconds || 0}s`;
 
         document.getElementById(
-            "fullScanProgress"
-        ).textContent =
-            `${data.completed_symbols || 0} / ${data.universe_total || 0} scanned`;
-
-        document.getElementById(
-            "fullScanStatus"
+            "autoStatusText"
         ).textContent =
             data.running
-                ? "Full Futures scan is running..."
-                : "Backend scan snapshot is live.";
+                ? "Deep analysis is running..."
+                : data.error
+                    ? (
+                        "Scanner error: " +
+                        data.error
+                    )
+                    : "Background scanner is running every 60 seconds.";
 
-        const gate =
-            data.trade_gate
-            ||
-            {};
-
-        document.getElementById(
-            "fullScanDecisionSummary"
-        ).textContent =
-            `Execute ${gate.execute_candidates || 0} • Watch ${gate.watch || 0} • No Trade ${gate.no_trade || 0}`;
-
-        allSignals =
-            data.results
-            ||
-            [];
-
-        renderSignals();
-
-    } catch (
-        err
-    ) {
+    } catch (err) {
 
         document.getElementById(
-            "fullScanStatus"
+            "autoStatusText"
         ).textContent =
-            err.message
-            ||
-            "Full scan unavailable.";
+            "Auto scanner status unavailable.";
 
     }
 }
 
 
 // =========================================================
-// TRADE ENGINE STATUS
+// CANDIDATE LIST
 // =========================================================
 
-async function refreshTradeEngineStatus() {
+async function refreshCandidates() {
 
     const container =
         document.getElementById(
-            "tradeEngineStatus"
+            "candidateGrid"
         );
 
     try {
 
         const response =
             await fetch(
-                "/api/trade/status"
+                "/api/auto/candidates?limit=12"
             );
 
         const data =
             await response.json();
 
         if (
-            !response.ok
-            ||
+            !response.ok ||
             !data.success
         ) {
 
-            throw new Error(
-                data.detail
-                ||
-                "Trade engine unavailable."
-            );
+            return;
 
         }
 
-        const engine =
-            data.engine
-            ||
-            {};
+        const candidates =
+            data.candidates || [];
 
-        const config =
-            data.config
-            ||
-            {};
+        if (
+            candidates.length === 0
+        ) {
+
+            container.innerHTML =
+                `
+                <div class="card empty">
+                    Waiting for candidate universe...
+                </div>
+                `;
+
+            return;
+
+        }
 
         container.innerHTML =
-            `
-            <div
-                class="trade-gate"
-            >
+            candidates.map(
+                item => {
 
-                <div class="gate-card">
+                    const coin =
+                        escapeHtml(
+                            item.coin ||
+                            String(
+                                item.symbol ||
+                                ""
+                            ).replace(
+                                /USDT$/i,
+                                ""
+                            )
+                        );
 
-                    <div class="gate-label">
-                        Mode
-                    </div>
+                    return `
+                        <div
+                            class="card"
+                            style="
+                                padding:15px;
+                            "
+                        >
 
-                    <div class="gate-value">
-                        ${escapeHtml(
-                            engine.mode
-                            ||
-                            "paper"
-                        )}
-                    </div>
+                            <div
+                                style="
+                                    display:flex;
+                                    justify-content:
+                                        space-between;
+                                    gap:10px;
+                                "
+                            >
 
-                </div>
+                                <strong>
+                                    $${coin}
+                                </strong>
 
+                                <span class="badge">
+                                    Score
+                                    ${number(
+                                        item.candidate_score
+                                    ).toFixed(
+                                        0
+                                    )}
+                                </span>
 
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        Balance
-                    </div>
-
-                    <div class="gate-value">
-                        $${number(
-                            engine.balance
-                        ).toFixed(
-                            2
-                        )}
-                    </div>
-
-                </div>
-
-
-                <div class="gate-card">
-
-                    <div class="gate-label">
-                        Execute Threshold
-                    </div>
-
-                    <div class="gate-value">
-                        ${number(
-                            config.execute_threshold
-                        ).toFixed(
-                            0
-                        )}%
-                    </div>
-
-                </div>
+                            </div>
 
 
-                <div class="gate-card">
+                            <div class="tf-row">
 
-                    <div class="gate-label">
-                        Risk / Trade
-                    </div>
+                                <span>
+                                    24H Change
+                                </span>
 
-                    <div class="gate-value">
-                        ${number(
-                            config.risk_per_trade_percent
-                        ).toFixed(
-                            2
-                        )}%
-                    </div>
+                                <span>
+                                    ${number(
+                                        item.price_change_24h
+                                    ).toFixed(
+                                        2
+                                    )}%
+                                </span>
 
-                </div>
+                            </div>
 
-            </div>
-            `;
 
-    } catch (
-        err
-    ) {
+                            <div class="tf-row">
 
-        container.innerHTML =
-            `
-            <div class="empty">
-                ${escapeHtml(
-                    err.message
-                    ||
-                    "Trade engine unavailable."
-                )}
-            </div>
-            `;
+                                <span>
+                                    Price
+                                </span>
+
+                                <span>
+                                    ${money(
+                                        item.price
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    24H Quote Volume
+                                </span>
+
+                                <span>
+                                    ${compact(
+                                        item.quote_volume_24h
+                                    )}
+                                </span>
+
+                            </div>
+
+                        </div>
+                    `;
+
+                }
+            ).join("");
+
+    } catch (err) {
+
+        // Keep the existing dashboard
+        // alive if the candidate request fails.
 
     }
-}
-
-
-// =========================================================
-// TRADINGVIEW
-// =========================================================
-
-function renderTradingView() {
-
-    const container =
-        document.getElementById(
-            "tradingviewChart"
-        );
-
-    if (!container) {
-        return;
-    }
-
-    container.innerHTML =
-        "";
-
-    const wrapper =
-        document.createElement(
-            "div"
-        );
-
-    wrapper.className =
-        "tradingview-widget-container";
-
-    wrapper.style.width =
-        "100%";
-
-    wrapper.style.height =
-        "100%";
-
-
-    const widget =
-        document.createElement(
-            "div"
-        );
-
-    widget.className =
-        "tradingview-widget-container__widget";
-
-    widget.style.width =
-        "100%";
-
-    widget.style.height =
-        "100%";
-
-
-    const script =
-        document.createElement(
-            "script"
-        );
-
-    script.type =
-        "text/javascript";
-
-    script.src =
-        "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-
-    script.async =
-        true;
-
-    script.textContent =
-        JSON.stringify(
-            {
-                autosize:
-                    true,
-
-                symbol:
-                    `BINANCE:${selectedCoin}USDT`,
-
-                interval:
-                    chartInterval,
-
-                timezone:
-                    "Etc/UTC",
-
-                theme:
-                    "dark",
-
-                style:
-                    "1",
-
-                locale:
-                    "en",
-
-                allow_symbol_change:
-                    false,
-
-                hide_side_toolbar:
-                    false,
-
-                withdateranges:
-                    true,
-
-                hide_volume:
-                    false,
-
-                support_host:
-                    "https://www.tradingview.com",
-            }
-        );
-
-
-    wrapper.appendChild(
-        widget
-    );
-
-    wrapper.appendChild(
-        script
-    );
-
-    container.appendChild(
-        wrapper
-    );
-}
-
-
-function setChartInterval(
-    interval,
-    button
-) {
-
-    chartInterval =
-        String(
-            interval
-        );
-
-    document
-        .querySelectorAll(
-            ".chart-btn"
-        )
-        .forEach(
-            btn => {
-                btn.classList.remove(
-                    "active"
-                );
-            }
-        );
-
-    if (button) {
-
-        button.classList.add(
-            "active"
-        );
-
-    }
-
-    renderTradingView();
 }
 
 
@@ -4979,9 +5023,7 @@ async function generateBinancePost() {
 
     const coin =
         String(
-            input.value
-            ||
-            ""
+            input.value || ""
         )
         .toUpperCase()
         .replace(
@@ -5023,35 +5065,28 @@ async function generateBinancePost() {
         ) {
 
             throw new Error(
-                result.detail
-                ||
-                result.error
-                ||
+                result.detail ||
+                result.error ||
                 "Post generation failed."
             );
 
         }
 
         const generated =
-            result.post
-            ||
+            result.post ||
             {};
 
         postBox.value =
-            generated.post
-            ||
+            generated.post ||
             "";
 
         status.textContent =
             `Generated for $${coin}`;
 
-    } catch (
-        err
-    ) {
+    } catch (err) {
 
         status.textContent =
-            err.message
-            ||
+            err.message ||
             "Unable to generate post.";
 
     }
@@ -5060,7 +5095,7 @@ async function generateBinancePost() {
 
 async function copyBinancePost() {
 
-    const box =
+    const postBox =
         document.getElementById(
             "binancePost"
         );
@@ -5071,9 +5106,7 @@ async function copyBinancePost() {
         );
 
     const text =
-        box.value
-        ||
-        "";
+        postBox.value || "";
 
     if (
         !text.trim()
@@ -5083,6 +5116,7 @@ async function copyBinancePost() {
             "Generate a post first.";
 
         return;
+
     }
 
     try {
@@ -5094,11 +5128,9 @@ async function copyBinancePost() {
         status.textContent =
             "Post copied.";
 
-    } catch (
-        _
-    ) {
+    } catch (err) {
 
-        box.select();
+        postBox.select();
 
         document.execCommand(
             "copy"
@@ -5106,25 +5138,13 @@ async function copyBinancePost() {
 
         status.textContent =
             "Post copied.";
+
     }
 }
 
 
 // =========================================================
-// REFRESH ALL
-// =========================================================
-
-async function refreshAll() {
-
-    await refreshFullScan();
-
-    await refreshTradeEngineStatus();
-
-}
-
-
-// =========================================================
-// EVENTS
+// EVENT LISTENERS
 // =========================================================
 
 document
@@ -5162,11 +5182,9 @@ document
             searchTimer =
                 setTimeout(
                     () => {
-
                         searchCoins(
                             event.target.value
                         );
-
                     },
                     250
                 );
@@ -5184,9 +5202,7 @@ document
         event => {
 
             if (
-                event.key
-                ===
-                "Enter"
+                event.key === "Enter"
             ) {
 
                 event.preventDefault();
@@ -5197,6 +5213,7 @@ document
                     "none";
 
                 analyzeSearchCoin();
+
             }
 
         }
@@ -5211,16 +5228,37 @@ document
         "change",
         () => {
 
+            allSignals = [];
+
             document.getElementById(
                 "searchSuggestions"
             ).style.display =
                 "none";
 
-            refreshAll();
+            if (
+                document.getElementById(
+                    "market"
+                ).value ===
+                "futures"
+            ) {
+
+                searchCoins(
+                    document.getElementById(
+                        "coinSearch"
+                    ).value
+                );
+
+            }
+
+            refreshAutoSignals();
 
         }
     );
 
+
+// =========================================================
+// CLOSE SEARCH SUGGESTIONS
+// =========================================================
 
 document.addEventListener(
     "click",
@@ -5232,8 +5270,7 @@ document.addEventListener(
             );
 
         if (
-            wrap
-            &&
+            wrap &&
             !wrap.contains(
                 event.target
             )
@@ -5243,6 +5280,7 @@ document.addEventListener(
                 "searchSuggestions"
             ).style.display =
                 "none";
+
         }
 
     }
@@ -5250,25 +5288,23 @@ document.addEventListener(
 
 
 // =========================================================
-// START DASHBOARD
+// START
 // =========================================================
 
 window.addEventListener(
     "load",
     () => {
 
-        renderTradingView();
+        refreshAutoSignals();
 
-        refreshAll();
-
-        setInterval(
-            refreshAll,
-            15_000
-        );
+        autoPollTimer =
+            setInterval(
+                refreshAutoSignals,
+                15_000
+            );
 
     }
 );
-
 
 </script>
 
@@ -5289,6 +5325,5 @@ window.addEventListener(
 async def dashboard():
 
     return HTMLResponse(
-        content=
-            DASHBOARD_HTML
+        content=DASHBOARD_HTML
     )
