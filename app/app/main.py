@@ -15,7 +15,7 @@ from app.app.services.scanner import MarketScanner
 app = FastAPI(
     title="RR Trader Live Scanner",
     description="AI-powered Binance Spot and Futures market scanner",
-    version="4.0.0",
+    version="4.1.0",
 )
 
 
@@ -23,30 +23,47 @@ app = FastAPI(
 # HELPERS
 # =========================================================
 
-def _safe_float(value: Any, default: float = 0.0) -> float:
+def _safe_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except (
+        TypeError,
+        ValueError,
+    ):
         return default
 
 
-def _confidence_level(confidence: float) -> str:
+def _confidence_level(
+    confidence: float,
+) -> str:
+
     if confidence >= 99:
         return "EXTREME"
+
     if confidence >= 95:
         return "VERY HIGH"
+
     if confidence >= 90:
         return "HIGH"
+
     if confidence >= 85:
         return "WATCH"
+
     return "LOW"
 
 
-def _signal_sort_key(item: Dict[str, Any]):
+def _signal_sort_key(
+    item: Dict[str, Any],
+):
     return _safe_float(
-        item.get("confidence", 0)
+        item.get(
+            "confidence",
+            0,
+        )
     )
-
 
 
 # =========================================================
@@ -57,12 +74,16 @@ AUTO_SCAN_INTERVAL_SECONDS = 60
 AUTO_UNIVERSE_SIZE = 150
 AUTO_DEEP_ANALYSIS_SIZE = 5
 
-_auto_scanner_task: Optional[asyncio.Task] = None
+_auto_scanner_task: Optional[
+    asyncio.Task
+] = None
 
 _auto_state: Dict[str, Any] = {
     "running": False,
     "last_scan": None,
-    "next_scan_in_seconds": AUTO_SCAN_INTERVAL_SECONDS,
+    "next_scan_in_seconds": (
+        AUTO_SCAN_INTERVAL_SECONDS
+    ),
     "error": None,
     "market": "futures",
     "universe": [],
@@ -71,35 +92,46 @@ _auto_state: Dict[str, Any] = {
     "deep_analyzed": 0,
 }
 
+
 _auto_binance = BinanceClient()
 _auto_scanner = MarketScanner()
 
 
-def _candidate_score(ticker: Dict[str, Any]) -> float:
+def _candidate_score(
+    ticker: Dict[str, Any],
+) -> float:
     """
-    Cheap pre-screen score for the 150-symbol candidate universe.
+    Cheap pre-screen score.
 
     This is NOT trade confidence.
-    It only ranks liquid/moving contracts before deep analysis.
+
+    It only ranks liquid and moving contracts
+    before expensive deep analysis.
     """
+
     change = _safe_float(
-        ticker.get("priceChangePercent"),
-        0,
-    )
-    volume = _safe_float(
-        ticker.get("quoteVolume"),
-        0,
+        ticker.get(
+            "priceChangePercent",
+            0,
+        )
     )
 
-    # Cap the volume contribution so extremely liquid majors
-    # do not automatically dominate every candidate.
+    volume = _safe_float(
+        ticker.get(
+            "quoteVolume",
+            0,
+        )
+    )
+
     volume_score = min(
         35.0,
         max(
             0.0,
             (
-                (volume / 10_000_000.0) ** 0.5
-            ) * 8.0,
+                (volume / 10_000_000.0)
+                ** 0.5
+            )
+            * 8.0,
         ),
     )
 
@@ -130,11 +162,17 @@ def _candidate_score(ticker: Dict[str, Any]) -> float:
 def _is_valid_futures_usdt_ticker(
     ticker: Dict[str, Any],
 ) -> bool:
+
     symbol = str(
-        ticker.get("symbol", "")
+        ticker.get(
+            "symbol",
+            "",
+        )
     ).upper()
 
-    if not symbol.endswith("USDT"):
+    if not symbol.endswith(
+        "USDT"
+    ):
         return False
 
     if any(
@@ -148,25 +186,27 @@ def _is_valid_futures_usdt_ticker(
     ):
         return False
 
-    # Binance delivery/leveraged weirdness is avoided by requiring
-    # a normal USDT symbol with a positive last price.
     return (
         _safe_float(
-            ticker.get("lastPrice"),
-            0,
+            ticker.get(
+                "lastPrice",
+                0,
+            )
         )
         > 0
     )
 
 
-async def _build_candidate_universe() -> List[Dict[str, Any]]:
+async def _build_candidate_universe() -> List[
+    Dict[str, Any]
+]:
     """
-    Fetch the Futures 24h ticker list and keep a cheap ranked
-    universe of up to 150 symbols.
+    Build a cheap Futures universe.
 
-    This stage is intentionally lightweight. We do NOT run full
-    technical/derivatives analysis on 150 symbols because Render
-    has already demonstrated memory pressure with large scans.
+    Up to 150 symbols are retained.
+
+    Only a small subset is deeply analyzed,
+    keeping Render memory usage under control.
     """
 
     tickers = await _auto_binance.ticker_24h(
@@ -179,7 +219,9 @@ async def _build_candidate_universe() -> List[Dict[str, Any]]:
     ):
         return []
 
-    candidates: List[Dict[str, Any]] = []
+    candidates: List[
+        Dict[str, Any]
+    ] = []
 
     for ticker in tickers:
 
@@ -195,7 +237,10 @@ async def _build_candidate_universe() -> List[Dict[str, Any]]:
             continue
 
         symbol = str(
-            ticker.get("symbol", "")
+            ticker.get(
+                "symbol",
+                "",
+            )
         ).upper()
 
         change = _safe_float(
@@ -237,24 +282,23 @@ async def _build_candidate_universe() -> List[Dict[str, Any]]:
             }
         )
 
-    # Prefer actively moving, liquid symbols.
     candidates.sort(
         key=lambda item: (
-            float(
+            _safe_float(
                 item.get(
                     "candidate_score",
                     0,
                 )
             ),
             abs(
-                float(
+                _safe_float(
                     item.get(
                         "price_change_24h",
                         0,
                     )
                 )
             ),
-            float(
+            _safe_float(
                 item.get(
                     "quote_volume_24h",
                     0,
@@ -271,15 +315,20 @@ async def _build_candidate_universe() -> List[Dict[str, Any]]:
 
 async def _auto_scan_cycle() -> None:
     """
-    One background cycle.
+    One background scan cycle.
 
-    1. Build a cheap 150-symbol candidate universe.
-    2. Deep-analyze only the top 5.
-    3. Keep 90%+ signals in memory.
+    1. Build a 150-symbol cheap universe.
+    2. Deep-analyze top 5 only.
+    3. Keep 90%+ signals.
     """
 
-    _auto_state["running"] = True
-    _auto_state["error"] = None
+    _auto_state[
+        "running"
+    ] = True
+
+    _auto_state[
+        "error"
+    ] = None
 
     try:
 
@@ -287,14 +336,21 @@ async def _auto_scan_cycle() -> None:
             await _build_candidate_universe()
         )
 
-        _auto_state["universe"] = universe
-        _auto_state["scanned"] = len(
+        _auto_state[
+            "universe"
+        ] = universe
+
+        _auto_state[
+            "scanned"
+        ] = len(
             universe
         )
 
-        deep_candidates = universe[
-            :AUTO_DEEP_ANALYSIS_SIZE
-        ]
+        deep_candidates = (
+            universe[
+                :AUTO_DEEP_ANALYSIS_SIZE
+            ]
+        )
 
         signals: List[
             Dict[str, Any]
@@ -335,10 +391,12 @@ async def _auto_scan_cycle() -> None:
                     )
                 )
 
-                direction = analysis.get(
-                    "direction",
-                    "NEUTRAL",
-                )
+                direction = str(
+                    analysis.get(
+                        "direction",
+                        "NEUTRAL",
+                    )
+                ).upper()
 
                 if (
                     direction
@@ -371,8 +429,6 @@ async def _auto_scan_cycle() -> None:
                     )
 
             except Exception:
-                # One bad coin must never kill the
-                # entire background cycle.
                 continue
 
         signals.sort(
@@ -428,32 +484,33 @@ async def _auto_scan_cycle() -> None:
 
 async def _auto_scanner_loop() -> None:
     """
-    Persistent one-minute background loop.
+    Continuous one-minute scanner.
 
-    The next scan only starts after the previous cycle is
-    complete, preventing overlapping scans and memory spikes.
+    A new scan starts only after the previous
+    scan has completed.
     """
 
-    # Initial delay allows the application to finish startup.
     await asyncio.sleep(3)
 
     while True:
 
         try:
+
             await _auto_scan_cycle()
 
         except asyncio.CancelledError:
             raise
 
         except Exception as exc:
+
             _auto_state[
                 "error"
             ] = str(exc)
+
             _auto_state[
                 "running"
             ] = False
 
-        # Count down between scans.
         for remaining in range(
             AUTO_SCAN_INTERVAL_SECONDS,
             0,
@@ -465,28 +522,39 @@ async def _auto_scanner_loop() -> None:
             ] = remaining
 
             try:
+
                 await asyncio.sleep(
                     1
                 )
+
             except asyncio.CancelledError:
                 raise
 
 
-@app.on_event("startup")
+@app.on_event(
+    "startup"
+)
 async def start_background_scanner() -> None:
+
     global _auto_scanner_task
 
     if (
         _auto_scanner_task is None
         or _auto_scanner_task.done()
     ):
-        _auto_scanner_task = asyncio.create_task(
-            _auto_scanner_loop()
+
+        _auto_scanner_task = (
+            asyncio.create_task(
+                _auto_scanner_loop()
+            )
         )
 
 
-@app.on_event("shutdown")
+@app.on_event(
+    "shutdown"
+)
 async def stop_background_scanner() -> None:
+
     global _auto_scanner_task
 
     if _auto_scanner_task is None:
@@ -495,7 +563,9 @@ async def stop_background_scanner() -> None:
     _auto_scanner_task.cancel()
 
     try:
+
         await _auto_scanner_task
+
     except asyncio.CancelledError:
         pass
 
@@ -503,7 +573,7 @@ async def stop_background_scanner() -> None:
 
 
 # =========================================================
-# SEARCH
+# FUTURES SYMBOL SEARCH
 # =========================================================
 
 _symbol_cache: Dict[
@@ -515,30 +585,28 @@ _symbol_cache: Dict[
 async def _load_futures_symbols() -> List[
     Dict[str, str]
 ]:
-    """
-    Load the Binance Futures USDT symbol universe.
-
-    The result stays in memory and is refreshed when empty.
-    """
 
     cached = _symbol_cache.get(
         "futures"
     )
 
     if cached:
+
         return cached.get(
             "symbols",
             [],
         )
 
-    info = await _auto_binance.exchange_info(
-        market="futures"
+    info = (
+        await _auto_binance.exchange_info(
+            market="futures"
+        )
     )
 
     raw_symbols = (
         info.get(
             "symbols",
-            []
+            [],
         )
         if isinstance(
             info,
@@ -617,7 +685,9 @@ async def _load_futures_symbols() -> List[
     return symbols
 
 
-@app.get("/api/search")
+@app.get(
+    "/api/search"
+)
 async def search_coins(
     q: str = Query(
         default="",
@@ -636,19 +706,27 @@ async def search_coins(
     )
 
     if market != "futures":
+
         raise HTTPException(
             status_code=400,
             detail=(
-                "Coin search currently uses "
-                "the Binance Futures perpetual universe."
+                "Coin search currently "
+                "uses the Binance Futures "
+                "perpetual universe."
             ),
         )
 
     query = (
         q
         .upper()
-        .replace("/", "")
-        .replace("-", "")
+        .replace(
+            "/",
+            "",
+        )
+        .replace(
+            "-",
+            "",
+        )
         .strip()
     )
 
@@ -657,6 +735,7 @@ async def search_coins(
     )
 
     if not query:
+
         return {
             "success": True,
             "query": "",
@@ -681,6 +760,7 @@ async def search_coins(
             )
 
         elif query in coin:
+
             contains.append(
                 item
             )
@@ -698,10 +778,12 @@ async def search_coins(
 
 
 # =========================================================
-# BACKGROUND SCANNER STATUS
+# AUTO SCANNER API
 # =========================================================
 
-@app.get("/api/auto/status")
+@app.get(
+    "/api/auto/status"
+)
 async def auto_scan_status() -> Dict[
     str,
     Any,
@@ -744,7 +826,9 @@ async def auto_scan_status() -> Dict[
     }
 
 
-@app.get("/api/auto/signals")
+@app.get(
+    "/api/auto/signals"
+)
 async def auto_signals(
     min_confidence: float = Query(
         default=90.0,
@@ -772,7 +856,9 @@ async def auto_signals(
     return {
         "success": True,
         "market": "futures",
-        "min_confidence": min_confidence,
+        "min_confidence": (
+            min_confidence
+        ),
         "scanned": _auto_state[
             "scanned"
         ],
@@ -797,7 +883,9 @@ async def auto_signals(
     }
 
 
-@app.get("/api/auto/candidates")
+@app.get(
+    "/api/auto/candidates"
+)
 async def auto_candidates(
     limit: int = Query(
         default=20,
@@ -817,9 +905,7 @@ async def auto_candidates(
         ],
         "candidates": _auto_state[
             "universe"
-        ][
-            :limit
-        ],
+        ][:limit],
         "last_scan": _auto_state[
             "last_scan"
         ],
@@ -829,23 +915,28 @@ async def auto_candidates(
 # =========================================================
 # ROOT
 # =========================================================
-# =========================================================
-# ROOT
-# =========================================================
 
 @app.get("/")
 async def root():
+
     return {
         "app": "RR Trader Live Scanner",
         "status": "online",
-        "version": "3.0.0",
+        "version": "4.1.0",
         "markets": [
             "futures",
             "spot",
         ],
         "dashboard": "/dashboard",
-        "high_confidence_api": "/api/signals",
-        "message": "RR Trader backend is working",
+        "high_confidence_api": (
+            "/api/signals"
+        ),
+        "post_api": (
+            "/api/post/generate"
+        ),
+        "message": (
+            "RR Trader backend is working"
+        ),
     }
 
 
@@ -855,6 +946,7 @@ async def root():
 
 @app.get("/health")
 async def health():
+
     return {
         "success": True,
         "status": "healthy",
@@ -869,7 +961,9 @@ async def health():
 app.include_router(
     api_router,
     prefix="/api",
-    tags=["RR Trader API"],
+    tags=[
+        "RR Trader API"
+    ],
 )
 
 
@@ -890,7 +984,9 @@ DASHBOARD_HTML = r"""
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>RR Trader Live Intelligence</title>
+    <title>
+        RR Trader Live Intelligence
+    </title>
 
     <style>
 
@@ -899,6 +995,7 @@ DASHBOARD_HTML = r"""
         }
 
         body {
+
             margin: 0;
 
             min-height: 100vh;
@@ -936,16 +1033,28 @@ DASHBOARD_HTML = r"""
             padding: 14px 24px;
 
             background:
-                rgba(4, 7, 14, 0.90);
+                rgba(
+                    4,
+                    7,
+                    14,
+                    0.90
+                );
 
             border-bottom:
-                1px solid rgba(255,255,255,0.08);
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.08
+                );
 
             backdrop-filter:
                 blur(18px);
         }
 
         .brand {
+
             display: flex;
             align-items: center;
             gap: 12px;
@@ -975,21 +1084,29 @@ DASHBOARD_HTML = r"""
 
             box-shadow:
                 0 0 24px
-                rgba(0, 229, 255, 0.25);
+                rgba(
+                    0,
+                    229,
+                    255,
+                    0.25
+                );
         }
 
         .brand-title {
+
             font-weight: 850;
             font-size: 18px;
         }
 
         .brand-subtitle {
+
             color: #7f8ba0;
             font-size: 11px;
             margin-top: 2px;
         }
 
         .live {
+
             display: flex;
             align-items: center;
             gap: 7px;
@@ -1009,19 +1126,28 @@ DASHBOARD_HTML = r"""
 
             box-shadow:
                 0 0 12px
-                rgba(0, 230, 118, 0.9);
+                rgba(
+                    0,
+                    230,
+                    118,
+                    0.9
+                );
         }
 
         .container {
 
-            width: min(
-                1500px,
-                calc(100% - 32px)
-            );
+            width:
+                min(
+                    1500px,
+                    calc(
+                        100% - 32px
+                    )
+                );
 
             margin: 0 auto;
 
-            padding: 24px 0 60px;
+            padding:
+                24px 0 60px;
         }
 
         .toolbar {
@@ -1041,14 +1167,25 @@ DASHBOARD_HTML = r"""
 
             border:
                 1px solid
-                rgba(255,255,255,0.09);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.09
+                );
 
             color: #fff;
 
             background:
-                rgba(255,255,255,0.055);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.055
+                );
 
-            padding: 11px 13px;
+            padding:
+                11px 13px;
 
             outline: none;
 
@@ -1057,10 +1194,12 @@ DASHBOARD_HTML = r"""
 
         select,
         input {
+
             min-width: 150px;
         }
 
         input {
+
             min-width: 190px;
         }
 
@@ -1081,16 +1220,30 @@ DASHBOARD_HTML = r"""
 
             box-shadow:
                 0 8px 24px
-                rgba(63, 84, 255, 0.22);
+                rgba(
+                    63,
+                    84,
+                    255,
+                    0.22
+                );
         }
 
         button:hover {
-            transform: translateY(-1px);
+
+            transform:
+                translateY(-1px);
         }
 
         .btn-secondary {
+
             background:
-                rgba(255,255,255,0.07);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.07
+                );
+
             box-shadow: none;
         }
 
@@ -1110,7 +1263,8 @@ DASHBOARD_HTML = r"""
 
             font-size: 17px;
 
-            letter-spacing: 0.01em;
+            letter-spacing:
+                0.01em;
         }
 
         .section-title span {
@@ -1124,19 +1278,39 @@ DASHBOARD_HTML = r"""
             background:
                 linear-gradient(
                     180deg,
-                    rgba(255,255,255,0.065),
-                    rgba(255,255,255,0.028)
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.065
+                    ),
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.028
+                    )
                 );
 
             border:
                 1px solid
-                rgba(255,255,255,0.075);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.075
+                );
 
             border-radius: 17px;
 
             box-shadow:
                 0 16px 42px
-                rgba(0,0,0,0.23);
+                rgba(
+                    0,
+                    0,
+                    0,
+                    0.23
+                );
 
             backdrop-filter:
                 blur(14px);
@@ -1147,12 +1321,16 @@ DASHBOARD_HTML = r"""
             display: grid;
 
             grid-template-columns:
-                repeat(4, 1fr);
+                repeat(
+                    4,
+                    1fr
+                );
 
             gap: 13px;
         }
 
         .overview-card {
+
             padding: 17px;
         }
 
@@ -1160,7 +1338,8 @@ DASHBOARD_HTML = r"""
 
             color: #77849b;
 
-            text-transform: uppercase;
+            text-transform:
+                uppercase;
 
             letter-spacing:
                 0.08em;
@@ -1182,7 +1361,10 @@ DASHBOARD_HTML = r"""
             display: grid;
 
             grid-template-columns:
-                repeat(2, 1fr);
+                repeat(
+                    2,
+                    1fr
+                );
 
             gap: 13px;
         }
@@ -1197,13 +1379,17 @@ DASHBOARD_HTML = r"""
         }
 
         .signal-card.long {
+
             border-left:
-                3px solid #00e676;
+                3px solid
+                #00e676;
         }
 
         .signal-card.short {
+
             border-left:
-                3px solid #ff5252;
+                3px solid
+                #ff5252;
         }
 
         .signal-top {
@@ -1213,7 +1399,8 @@ DASHBOARD_HTML = r"""
             justify-content:
                 space-between;
 
-            align-items: flex-start;
+            align-items:
+                flex-start;
 
             gap: 10px;
         }
@@ -1235,16 +1422,19 @@ DASHBOARD_HTML = r"""
         }
 
         .long-text {
+
             color: #00e676;
         }
 
         .short-text {
+
             color: #ff5252;
         }
 
         .confidence {
 
-            padding: 7px 10px;
+            padding:
+                7px 10px;
 
             border-radius: 9px;
 
@@ -1294,7 +1484,10 @@ DASHBOARD_HTML = r"""
             display: grid;
 
             grid-template-columns:
-                repeat(4, 1fr);
+                repeat(
+                    4,
+                    1fr
+                );
 
             gap: 8px;
 
@@ -1308,7 +1501,12 @@ DASHBOARD_HTML = r"""
             border-radius: 10px;
 
             background:
-                rgba(255,255,255,0.04);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.04
+                );
         }
 
         .mini .mini-label {
@@ -1345,21 +1543,29 @@ DASHBOARD_HTML = r"""
 
             border-radius: 999px;
 
-            padding: 6px 9px;
+            padding:
+                6px 9px;
 
             color: #aeb8c7;
 
             background:
-                rgba(255,255,255,0.055);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.055
+                );
 
             font-size: 10px;
         }
 
         .empty {
 
-            padding: 35px 18px;
+            padding:
+                35px 18px;
 
-            text-align: center;
+            text-align:
+                center;
 
             color: #758197;
         }
@@ -1369,7 +1575,10 @@ DASHBOARD_HTML = r"""
             display: grid;
 
             grid-template-columns:
-                repeat(3, 1fr);
+                repeat(
+                    4,
+                    1fr
+                );
 
             gap: 10px;
         }
@@ -1381,11 +1590,21 @@ DASHBOARD_HTML = r"""
             border-radius: 13px;
 
             background:
-                rgba(255,255,255,0.04);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.04
+                );
 
             border:
                 1px solid
-                rgba(255,255,255,0.065);
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.065
+                );
         }
 
         .tf-head {
@@ -1398,11 +1617,14 @@ DASHBOARD_HTML = r"""
 
         .tf-name {
 
-            font-weight: 900;
+            font-weight:
+                900;
         }
 
         .tf-dir {
-            font-weight: 900;
+
+            font-weight:
+                900;
         }
 
         .tf-row {
@@ -1419,48 +1641,10 @@ DASHBOARD_HTML = r"""
             font-size: 10px;
         }
 
-        .search-wrap input:focus {
-            border-color: #00d7ff;
-            box-shadow: 0 0 0 3px rgba(0,215,255,0.10);
-        }
-
-        .search-item {
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:10px;
-            padding:10px 11px;
-            border-radius:9px;
-            cursor:pointer;
-        }
-
-        .search-item:hover {
-            background:rgba(255,255,255,0.06);
-        }
-
-        .candidate-card {
-            padding:14px;
-        }
-
-        .candidate-symbol {
-            font-weight:900;
-            font-size:15px;
-        }
-
-        .candidate-metric {
-            color:#8190a5;
-            font-size:10px;
-            margin-top:4px;
-        }
-
-        .candidate-score {
-            font-weight:900;
-            color:#00e6a0;
-        }
-
         .error {
 
-            margin-top: 12px;
+            margin-top:
+                12px;
 
             color: #ff8a80;
 
@@ -1474,48 +1658,139 @@ DASHBOARD_HTML = r"""
             font-size: 10px;
         }
 
-        @media (max-width: 1000px) {
+        .search-wrap {
+
+            position: relative;
+
+            flex: 1;
+
+            min-width: 280px;
+        }
+
+        .search-suggestions {
+
+            display: none;
+
+            position: absolute;
+
+            left: 0;
+            right: 0;
+
+            top: 48px;
+
+            z-index: 200;
+
+            max-height: 280px;
+
+            overflow: auto;
+
+            padding: 6px;
+        }
+
+        .suggestion {
+
+            padding:
+                10px 11px;
+
+            border-radius: 9px;
+
+            cursor: pointer;
+
+            display: flex;
+
+            justify-content:
+                space-between;
+        }
+
+        .suggestion:hover {
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.06
+                );
+        }
+
+        textarea {
+
+            font-family:
+                inherit;
+
+            line-height:
+                1.6;
+        }
+
+        @media (
+            max-width: 1000px
+        ) {
 
             .overview {
+
                 grid-template-columns:
-                    repeat(2, 1fr);
+                    repeat(
+                        2,
+                        1fr
+                    );
             }
 
             .signals {
-                grid-template-columns: 1fr;
+
+                grid-template-columns:
+                    1fr;
             }
 
             .timeframes {
+
                 grid-template-columns:
-                    repeat(2, 1fr);
+                    repeat(
+                        2,
+                        1fr
+                    );
             }
         }
 
-        @media (max-width: 620px) {
+        @media (
+            max-width: 620px
+        ) {
 
             .container {
+
                 width:
-                    calc(100% - 20px);
+                    calc(
+                        100% - 20px
+                    );
             }
 
             .overview,
             .timeframes {
-                grid-template-columns: 1fr;
+
+                grid-template-columns:
+                    1fr;
             }
 
             .signal-grid {
+
                 grid-template-columns:
-                    repeat(2, 1fr);
+                    repeat(
+                        2,
+                        1fr
+                    );
             }
 
             .toolbar {
-                flex-direction: column;
+
+                flex-direction:
+                    column;
             }
 
             select,
             input,
             button {
-                width: 100%;
+
+                width:
+                    100%;
             }
         }
 
@@ -1536,6 +1811,7 @@ DASHBOARD_HTML = r"""
         </div>
 
         <div>
+
             <div class="brand-title">
                 RR Trader
             </div>
@@ -1543,13 +1819,18 @@ DASHBOARD_HTML = r"""
             <div class="brand-subtitle">
                 Live Crypto Intelligence Dashboard
             </div>
+
         </div>
 
     </div>
 
+
     <div class="live">
+
         <span class="live-dot"></span>
+
         Live
+
     </div>
 
 </header>
@@ -1562,10 +1843,8 @@ DASHBOARD_HTML = r"""
 
     <div class="toolbar">
 
-        <div
-            class="search-wrap"
-            style="position:relative;flex:1;min-width:280px;"
-        >
+        <div class="search-wrap">
+
             <input
                 id="coinSearch"
                 placeholder="Search Futures coin — e.g. BTC, BANK, ZDC"
@@ -1575,47 +1854,65 @@ DASHBOARD_HTML = r"""
 
             <div
                 id="searchSuggestions"
-                class="card"
-                style="
-                    display:none;
-                    position:absolute;
-                    left:0;
-                    right:0;
-                    top:48px;
-                    z-index:200;
-                    max-height:280px;
-                    overflow:auto;
-                    padding:6px;
-                "
+                class="card search-suggestions"
             ></div>
+
         </div>
 
+
         <select id="market">
+
             <option value="futures">
                 Binance Futures
             </option>
+
             <option value="spot">
                 Binance Spot
             </option>
+
         </select>
+
 
         <select id="filter">
-            <option value="90">90%+</option>
-            <option value="95">95%+</option>
-            <option value="99">99%+</option>
+
+            <option value="90">
+                90%+
+            </option>
+
+            <option value="95">
+                95%+
+            </option>
+
+            <option value="99">
+                99%+
+            </option>
+
         </select>
 
+
         <select id="directionFilter">
-            <option value="ALL">LONG + SHORT</option>
-            <option value="LONG">LONG</option>
-            <option value="SHORT">SHORT</option>
+
+            <option value="ALL">
+                LONG + SHORT
+            </option>
+
+            <option value="LONG">
+                LONG
+            </option>
+
+            <option value="SHORT">
+                SHORT
+            </option>
+
         </select>
+
 
         <button
             onclick="analyzeSearchCoin()"
         >
             Analyze Coin
         </button>
+
 
         <button
             class="btn-secondary"
@@ -1641,8 +1938,13 @@ DASHBOARD_HTML = r"""
             gap:12px;
         "
     >
+
         <div>
-            <strong>LIVE AUTO SCANNER</strong>
+
+            <strong>
+                LIVE AUTO SCANNER
+            </strong>
+
             <div
                 id="autoStatusText"
                 class="updated"
@@ -1650,7 +1952,9 @@ DASHBOARD_HTML = r"""
             >
                 Starting background scanner...
             </div>
+
         </div>
+
 
         <div
             style="
@@ -1659,12 +1963,14 @@ DASHBOARD_HTML = r"""
                 flex-wrap:wrap;
             "
         >
+
             <span class="badge">
                 Universe:
                 <strong id="autoUniverse">
                     0
                 </strong>
             </span>
+
 
             <span class="badge">
                 Deep:
@@ -1673,19 +1979,23 @@ DASHBOARD_HTML = r"""
                 </strong>
             </span>
 
+
             <span class="badge">
                 Next:
                 <strong id="autoNext">
                     60s
                 </strong>
             </span>
+
         </div>
+
     </section>
 
 
     <!-- TOP CANDIDATES -->
 
     <div class="section-title">
+
         <h2>
             Top Futures Candidates
         </h2>
@@ -1693,16 +2003,26 @@ DASHBOARD_HTML = r"""
         <span>
             Live 150-coin universe
         </span>
+
     </div>
+
 
     <section
         id="candidateGrid"
         class="signals"
-        style="grid-template-columns:repeat(3,1fr);"
+        style="
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+        "
     >
+
         <div class="card empty">
             Loading candidate universe...
         </div>
+
     </section>
 
 
@@ -1831,12 +2151,105 @@ DASHBOARD_HTML = r"""
     <section
         id="selectedAnalysis"
         class="card"
-        style="padding:18px;"
+        style="
+            padding:18px;
+        "
     >
 
         <div class="empty">
             Analyze a symbol to see its full analysis.
         </div>
+
+    </section>
+
+
+    <!-- POST GENERATOR -->
+
+    <div class="section-title">
+
+        <h2>
+            Binance Community Post
+        </h2>
+
+        <span>
+            Generate • Edit • Copy
+        </span>
+
+    </div>
+
+
+    <section
+        class="card"
+        style="
+            padding:18px;
+            margin-bottom:20px;
+        "
+    >
+
+        <div
+            style="
+                display:flex;
+                gap:10px;
+                flex-wrap:wrap;
+                margin-bottom:12px;
+            "
+        >
+
+            <button
+                onclick="generateBinancePost()"
+            >
+                Generate Post
+            </button>
+
+            <button
+                class="btn-secondary"
+                onclick="copyBinancePost()"
+            >
+                Copy Post
+            </button>
+
+            <span
+                id="postStatus"
+                class="updated"
+                style="
+                    align-self:center;
+                "
+            ></span>
+
+        </div>
+
+
+        <textarea
+            id="binancePost"
+            placeholder="
+Your generated Binance community post will appear here...
+            "
+            style="
+                width:100%;
+                min-height:260px;
+                resize:vertical;
+                padding:14px;
+                border-radius:12px;
+                border:
+                    1px solid
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.10
+                    );
+                background:
+                    rgba(
+                        255,
+                        255,
+                        255,
+                        0.045
+                    );
+                color:#f4f7fb;
+                outline:none;
+                font-size:14px;
+            "
+        ></textarea>
 
     </section>
 
@@ -1851,554 +2264,375 @@ let searchTimer = null;
 let autoPollTimer = null;
 
 
-function number(value) {
+// =========================================================
+// UTILITIES
+// =========================================================
 
-    const parsed = Number(value);
+function number(
+    value
+) {
 
-    return Number.isNaN(parsed)
+    const parsed =
+        Number(
+            value
+        );
+
+    return Number.isNaN(
+        parsed
+    )
         ? 0
         : parsed;
-
 }
 
 
-function money(value) {
+function money(
+    value
+) {
 
     if (
         value === null ||
         value === undefined
     ) {
+
         return "-";
+
     }
 
-    const n = Number(value);
+    const n =
+        Number(
+            value
+        );
 
-    if (Number.isNaN(n)) {
+    if (
+        Number.isNaN(n)
+    ) {
+
         return "-";
+
     }
 
     return n.toLocaleString(
         undefined,
         {
-            maximumFractionDigits: 6
+            maximumFractionDigits:
+                6
         }
     );
-
 }
 
 
-function compact(value) {
-
-    const n = number(value);
-
-    if (n >= 1_000_000_000) {
-        return (
-            n / 1_000_000_000
-        ).toFixed(2) + "B";
-    }
-
-    if (n >= 1_000_000) {
-        return (
-            n / 1_000_000
-        ).toFixed(2) + "M";
-    }
-
-    if (n >= 1_000) {
-        return (
-            n / 1_000
-        ).toFixed(2) + "K";
-    }
-
-    return n.toFixed(2);
-
-}
-
-
-function directionClass(direction) {
-
-    return direction === "LONG"
-        ? "long-text"
-        : "short-text";
-
-}
-
-
-function confidenceClass(confidence) {
-
-    if (confidence >= 99) {
-        return "extreme";
-    }
-
-    if (confidence >= 95) {
-        return "very-high";
-    }
-
-    return "high";
-
-}
-
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-
-}
-
-
-function renderSignals() {
-
-    const threshold = number(
-        document.getElementById(
-            "filter"
-        ).value
-    );
-
-    const directionFilter =
-        document.getElementById(
-            "directionFilter"
-        ).value;
-
-    const container =
-        document.getElementById(
-            "signals"
-        );
-
-    const filtered =
-        allSignals.filter(
-            signal => {
-
-                const confidence =
-                    number(
-                        signal.confidence
-                    );
-
-                const direction =
-                    signal.direction;
-
-                return (
-                    confidence >= threshold
-                    &&
-                    (
-                        directionFilter === "ALL"
-                        ||
-                        direction === directionFilter
-                    )
-                );
-
-            }
-        );
-
-    if (!filtered.length) {
-
-        container.innerHTML = `
-            <div class="card empty">
-                No matching ${threshold}%+
-                signals right now.
-            </div>
-        `;
-
-        return;
-
-    }
-
-
-    container.innerHTML =
-        filtered
-            .map(
-                signal => {
-
-                    const confidence =
-                        number(
-                            signal.confidence
-                        );
-
-                    const direction =
-                        signal.direction;
-
-                    const cClass =
-                        confidenceClass(
-                            confidence
-                        );
-
-                    const dClass =
-                        direction === "LONG"
-                        ? "long"
-                        : "short";
-
-                    const level =
-                        signal.confidence_level
-                        ||
-                        (
-                            confidence >= 99
-                            ? "EXTREME"
-                            :
-                            confidence >= 95
-                            ? "VERY HIGH"
-                            :
-                            "HIGH"
-                        );
-
-                    const reasons =
-                        (
-                            signal.reasons
-                            || []
-                        )
-                        .slice(0, 5)
-                        .map(
-                            reason =>
-                                `<span class="badge">${escapeHtml(reason)}</span>`
-                        )
-                        .join("");
-
-                    const confirmation =
-                        number(
-                            signal.confirmation_percent
-                        );
-
-                    return `
-                        <div
-                            class="card signal-card ${dClass}"
-                        >
-
-                            <div class="signal-top">
-
-                                <div>
-
-                                    <div class="symbol">
-                                        ${escapeHtml(
-                                            signal.coin ||
-                                            String(
-                                                signal.symbol ||
-                                                ""
-                                            ).replace(
-                                                /USDT$/i,
-                                                ""
-                                            )
-                                        )}
-                                    </div>
-
-                                    <div
-                                        class="
-                                            direction
-                                            ${
-                                                direction === "LONG"
-                                                ? "long-text"
-                                                : "short-text"
-                                            }
-                                        "
-                                    >
-                                        ${escapeHtml(
-                                            direction
-                                        )}
-                                    </div>
-
-                                </div>
-
-                                <div
-                                    class="
-                                        confidence
-                                        ${cClass}
-                                    "
-                                >
-                                    ${confidence.toFixed(1)}%
-                                </div>
-
-                            </div>
-
-                            <div class="signal-footer">
-
-                                <span class="badge">
-                                    ${escapeHtml(
-                                        level
-                                    )}
-                                </span>
-
-                                <span class="badge">
-                                    ${escapeHtml(
-                                        signal.market ||
-                                        "futures"
-                                    )}
-                                </span>
-
-                                ${
-                                    confirmation > 0
-                                    ? `
-                                        <span class="badge">
-                                            ${confirmation.toFixed(0)}% confirmations
-                                        </span>
-                                    `
-                                    : ""
-                                }
-
-                            </div>
-
-                            <div class="signal-grid">
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        Price
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.price
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        Entry
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.entry
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        Stop Loss
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.stop_loss
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        R:R
-                                    </div>
-                                    <div class="mini-value">
-                                        ${number(
-                                            signal.risk_reward
-                                        ).toFixed(2)}R
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        TP1
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.tp1
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        TP2
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.tp2
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        TP3
-                                    </div>
-                                    <div class="mini-value">
-                                        ${money(
-                                            signal.tp3
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div class="mini">
-                                    <div class="mini-label">
-                                        24H Volume
-                                    </div>
-                                    <div class="mini-value">
-                                        ${compact(
-                                            signal.quote_volume_24h
-                                        )}
-                                    </div>
-                                </div>
-
-                            </div>
-
-                            <div class="signal-footer">
-                                ${reasons}
-                            </div>
-
-                        </div>
-                    `;
-
-                }
-            )
-            .join("");
-
-}
-
-
-function renderCandidates(
-    candidates
+function compact(
+    value
 ) {
 
-    const container =
-        document.getElementById(
-            "candidateGrid"
+    const n =
+        number(
+            value
         );
 
     if (
-        !candidates ||
-        !candidates.length
+        n >= 1_000_000_000
     ) {
 
-        container.innerHTML = `
-            <div class="card empty">
-                Candidate universe is loading...
-            </div>
-        `;
+        return (
+            n /
+            1_000_000_000
+        ).toFixed(2) +
+        "B";
+
+    }
+
+    if (
+        n >= 1_000_000
+    ) {
+
+        return (
+            n /
+            1_000_000
+        ).toFixed(2) +
+        "M";
+
+    }
+
+    if (
+        n >= 1_000
+    ) {
+
+        return (
+            n /
+            1_000
+        ).toFixed(2) +
+        "K";
+
+    }
+
+    return n.toFixed(
+        2
+    );
+}
+
+
+function escapeHtml(
+    value
+) {
+
+    return String(
+        value ?? ""
+    )
+    .replace(
+        /&/g,
+        "&amp;"
+    )
+    .replace(
+        /</g,
+        "&lt;"
+    )
+    .replace(
+        />/g,
+        "&gt;"
+    )
+    .replace(
+        /"/g,
+        "&quot;"
+    )
+    .replace(
+        /'/g,
+        "&#039;"
+    );
+}
+
+
+function directionClass(
+    direction
+) {
+
+    return (
+        direction ===
+        "LONG"
+    )
+        ? "long-text"
+        : "short-text";
+}
+
+
+function confidenceClass(
+    confidence
+) {
+
+    if (
+        confidence >= 99
+    ) {
+
+        return "extreme";
+
+    }
+
+    if (
+        confidence >= 95
+    ) {
+
+        return "very-high";
+
+    }
+
+    return "high";
+}
+
+
+// =========================================================
+// SEARCH
+// =========================================================
+
+async function searchCoins(
+    query
+) {
+
+    const suggestions =
+        document.getElementById(
+            "searchSuggestions"
+        );
+
+    const market =
+        document.getElementById(
+            "market"
+        ).value;
+
+    if (
+        market !==
+        "futures"
+    ) {
+
+        suggestions.style.display =
+            "none";
 
         return;
 
     }
 
+    const q =
+        String(
+            query || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
 
-    container.innerHTML =
-        candidates
-            .slice(0, 12)
-            .map(
-                candidate => {
+    if (!q) {
 
-                    const change =
-                        number(
-                            candidate.price_change_24h
+        suggestions.innerHTML =
+            "";
+
+        suggestions.style.display =
+            "none";
+
+        return;
+
+    }
+
+    try {
+
+        const response =
+            await fetch(
+                `/api/search?q=${encodeURIComponent(
+                    q
+                )}&market=futures`
+            );
+
+        const data =
+            await response.json();
+
+        if (
+            !response.ok ||
+            !data.success
+        ) {
+
+            throw new Error(
+                data.detail ||
+                "Search failed"
+            );
+
+        }
+
+        const coins =
+            data.coins || [];
+
+        if (
+            coins.length === 0
+        ) {
+
+            suggestions.innerHTML =
+                `
+                <div class="empty">
+                    No Futures coin found.
+                </div>
+                `;
+
+            suggestions.style.display =
+                "block";
+
+            return;
+
+        }
+
+        suggestions.innerHTML =
+            coins.map(
+                item => {
+
+                    const coin =
+                        escapeHtml(
+                            item.coin ||
+                            String(
+                                item.symbol ||
+                                ""
+                            )
+                            .replace(
+                                /USDT$/i,
+                                ""
+                            )
                         );
 
-                    const score =
-                        number(
-                            candidate.candidate_score
+                    const symbol =
+                        escapeHtml(
+                            item.symbol ||
+                            `${coin}USDT`
                         );
-
-                    const direction =
-                        change >= 0
-                        ? "LONG"
-                        : "SHORT";
 
                     return `
                         <div
-                            class="card candidate-card"
-                            style="
-                                border-left:
-                                    3px solid
-                                    ${
-                                        direction === "LONG"
-                                        ? "#00e676"
-                                        : "#ff5252"
-                                    };
-                            "
-                            onclick="
-                                analyzeCoin(
-                                    '${escapeHtml(
-                                        candidate.coin
-                                    )}'
-                                )
-                            "
+                            class="suggestion"
+                            onclick="selectSearchCoin('${coin}')"
                         >
+                            <strong>
+                                $${coin}
+                            </strong>
 
-                            <div
-                                style="
-                                    display:flex;
-                                    justify-content:
-                                        space-between;
-                                    gap:8px;
-                                "
-                            >
-
-                                <div>
-                                    <div class="candidate-symbol">
-                                        ${escapeHtml(
-                                            candidate.coin
-                                        )}
-                                    </div>
-
-                                    <div
-                                        class="
-                                            ${direction === "LONG"
-                                                ? "long-text"
-                                                : "short-text"}
-                                        "
-                                        style="
-                                            font-weight:900;
-                                            font-size:11px;
-                                            margin-top:4px;
-                                        "
-                                    >
-                                        ${direction}
-                                    </div>
-                                </div>
-
-                                <div class="candidate-score">
-                                    ${score.toFixed(0)}
-                                </div>
-
-                            </div>
-
-                            <div class="candidate-metric">
-                                24H:
-                                ${
-                                    change >= 0
-                                    ? "+"
-                                    : ""
-                                }${change.toFixed(2)}%
-                            </div>
-
-                            <div class="candidate-metric">
-                                Volume:
-                                ${compact(
-                                    candidate.quote_volume_24h
-                                )}
-                            </div>
-
+                            <span class="updated">
+                                ${symbol}
+                            </span>
                         </div>
                     `;
 
                 }
-            )
-            .join("");
+            ).join("");
 
+        suggestions.style.display =
+            "block";
+
+    } catch (err) {
+
+        suggestions.innerHTML =
+            `
+            <div class="empty">
+                ${escapeHtml(
+                    err.message ||
+                    "Search unavailable."
+                )}
+            </div>
+            `;
+
+        suggestions.style.display =
+            "block";
+
+    }
 }
 
 
-async function analyzeCoin(
+function selectSearchCoin(
     coin
 ) {
 
-    const cleaned =
-        String(coin || "")
-            .toUpperCase()
-            .replace(
-                /USDT$/i,
-                ""
-            )
-            .trim();
+    const input =
+        document.getElementById(
+            "coinSearch"
+        );
 
-    if (!cleaned) {
-        return;
-    }
+    input.value =
+        String(
+            coin || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
 
     document.getElementById(
-        "coinSearch"
-    ).value = cleaned;
+        "searchSuggestions"
+    ).style.display =
+        "none";
 
-    await analyzeSearchCoin();
+    analyzeSearchCoin();
 
 }
 
+
+// =========================================================
+// SELECTED COIN ANALYSIS
+// =========================================================
 
 async function analyzeSearchCoin() {
 
@@ -2431,13 +2665,16 @@ async function analyzeSearchCoin() {
             "selectedAnalysis"
         );
 
-    container.innerHTML = `
+    container.innerHTML =
+        `
         <div class="empty">
-            Loading ${escapeHtml(coin)}
+            Loading
+            ${escapeHtml(
+                coin
+            )}
             Futures analysis...
         </div>
-    `;
-
+        `;
 
     try {
 
@@ -2451,7 +2688,9 @@ async function analyzeSearchCoin() {
         const result =
             await response.json();
 
-        if (!response.ok) {
+        if (
+            !response.ok
+        ) {
 
             throw new Error(
                 result.detail ||
@@ -2472,14 +2711,15 @@ async function analyzeSearchCoin() {
 
     } catch (err) {
 
-        container.innerHTML = `
+        container.innerHTML =
+            `
             <div class="empty">
                 ${escapeHtml(
                     err.message ||
                     "Unable to analyze coin."
                 )}
             </div>
-        `;
+            `;
 
     }
 
@@ -2496,7 +2736,8 @@ function renderSelectedAnalysis(
         );
 
     const timeframes =
-        data.timeframes || {};
+        data.timeframes ||
+        {};
 
     const timeframeOrder = [
         "5m",
@@ -2511,23 +2752,29 @@ function renderSelectedAnalysis(
                 tf => {
 
                     const item =
-                        timeframes[tf];
+                        timeframes[
+                            tf
+                        ];
 
-                    if (!item) {
+                    if (
+                        !item
+                    ) {
+
                         return "";
+
                     }
 
-                    const a =
-                        item.analysis || {};
+                    const analysis =
+                        item.analysis ||
+                        {};
 
-                    const s =
-                        item.score || {};
+                    const score =
+                        item.score ||
+                        {};
 
                     const direction =
-                        s.direction
-                        ||
-                        a.direction
-                        ||
+                        score.direction ||
+                        analysis.direction ||
                         "NEUTRAL";
 
                     return `
@@ -2548,7 +2795,8 @@ function renderSelectedAnalysis(
                                     "
                                 >
                                     ${number(
-                                        s.confidence
+                                        score.confidence ||
+                                        0
                                     ).toFixed(0)}%
                                 </div>
 
@@ -2561,53 +2809,88 @@ function renderSelectedAnalysis(
                                         direction
                                     )}
                                 "
+                                style="
+                                    margin-top:6px;
+                                "
                             >
-                                ${direction}
+                                ${escapeHtml(
+                                    direction
+                                )}
                             </div>
 
+
                             <div class="tf-row">
-                                <span>Price</span>
+
+                                <span>
+                                    Price
+                                </span>
+
                                 <span>
                                     ${money(
-                                        a.price
+                                        analysis.price
                                     )}
                                 </span>
+
                             </div>
 
+
                             <div class="tf-row">
-                                <span>EMA20</span>
+
+                                <span>
+                                    EMA20
+                                </span>
+
                                 <span>
                                     ${money(
-                                        a.ema20
+                                        analysis.ema20
                                     )}
                                 </span>
+
                             </div>
 
+
                             <div class="tf-row">
-                                <span>EMA50</span>
+
+                                <span>
+                                    EMA50
+                                </span>
+
                                 <span>
                                     ${money(
-                                        a.ema50
+                                        analysis.ema50
                                     )}
                                 </span>
+
                             </div>
 
+
                             <div class="tf-row">
-                                <span>Momentum</span>
+
+                                <span>
+                                    Momentum
+                                </span>
+
                                 <span>
                                     ${number(
-                                        a.momentum
+                                        analysis.momentum
                                     ).toFixed(4)}%
                                 </span>
+
                             </div>
 
+
                             <div class="tf-row">
-                                <span>Volume</span>
+
+                                <span>
+                                    Volume
+                                </span>
+
                                 <span>
                                     ${number(
-                                        a.volume_ratio
+                                        analysis.volume_ratio
                                     ).toFixed(2)}x
                                 </span>
+
                             </div>
 
                         </div>
@@ -2617,95 +2900,458 @@ function renderSelectedAnalysis(
             )
             .join("");
 
-    container.innerHTML = `
 
-        <div
-            style="
-                display:grid;
-                grid-template-columns:
-                    repeat(
-                        auto-fit,
-                        minmax(210px,1fr)
-                    );
-                gap:10px;
-            "
-        >
-            ${cards}
-        </div>
+    const confidence =
+        number(
+            data.confidence
+        );
 
-        <div
-            class="signal-footer"
-            style="margin-top:15px;"
-        >
+    const direction =
+        data.direction ||
+        "NEUTRAL";
 
-            <span class="badge">
-                ${
-                    escapeHtml(
-                        data.direction ||
-                        "NEUTRAL"
-                    )
-                }
-            </span>
 
-            <span class="badge">
-                Confidence:
-                ${
-                    number(
-                        data.confidence
-                    ).toFixed(1)
-                }%
-            </span>
+    container.innerHTML =
+        `
 
-            <span class="badge">
-                Entry:
-                ${money(
-                    data.entry
-                )}
-            </span>
+        <div>
 
-            <span class="badge">
-                SL:
-                ${money(
-                    data.stop_loss
-                )}
-            </span>
+            <div
+                style="
+                    display:flex;
+                    gap:10px;
+                    flex-wrap:wrap;
+                    margin-bottom:14px;
+                "
+            >
 
-            <span class="badge">
-                TP1:
-                ${money(
-                    data.tp1
-                )}
-            </span>
+                <span class="badge">
+                    ${escapeHtml(
+                        direction
+                    )}
+                </span>
 
-            <span class="badge">
-                TP2:
-                ${money(
-                    data.tp2
-                )}
-            </span>
+                <span class="badge">
+                    Confidence:
+                    ${confidence.toFixed(
+                        1
+                    )}%
+                </span>
 
-            <span class="badge">
-                TP3:
-                ${money(
-                    data.tp3
-                )}
-            </span>
+                <span class="badge">
+                    Entry:
+                    ${money(
+                        data.entry
+                    )}
+                </span>
 
-            <span class="badge">
-                R:R:
-                ${
-                    number(
+                <span class="badge">
+                    SL:
+                    ${money(
+                        data.stop_loss
+                    )}
+                </span>
+
+                <span class="badge">
+                    R:R:
+                    ${number(
                         data.risk_reward
-                    ).toFixed(2)
-                }R
-            </span>
+                    ).toFixed(2)}R
+                </span>
+
+            </div>
+
+
+            <div class="timeframes">
+
+                ${cards}
+
+            </div>
 
         </div>
-
-    `;
-
+        `;
 }
 
+
+// =========================================================
+// AUTO SIGNALS
+// =========================================================
+
+function renderSignals() {
+
+    const threshold =
+        number(
+            document.getElementById(
+                "filter"
+            ).value
+        );
+
+    const directionFilter =
+        document.getElementById(
+            "directionFilter"
+        ).value;
+
+    const container =
+        document.getElementById(
+            "signals"
+        );
+
+    const filtered =
+        allSignals.filter(
+            signal => {
+
+                const confidence =
+                    number(
+                        signal.confidence
+                    );
+
+                const direction =
+                    signal.direction;
+
+                return (
+                    confidence >=
+                        threshold
+                    &&
+                    (
+                        directionFilter ===
+                            "ALL"
+                        ||
+                        direction ===
+                            directionFilter
+                    )
+                );
+            }
+        );
+
+
+    if (
+        filtered.length === 0
+    ) {
+
+        container.innerHTML =
+            `
+            <div class="card empty">
+                No matching
+                ${threshold}%+
+                signals right now.
+            </div>
+            `;
+
+        return;
+
+    }
+
+
+    container.innerHTML =
+        filtered
+            .map(
+                signal => {
+
+                    const confidence =
+                        number(
+                            signal.confidence
+                        );
+
+                    const direction =
+                        signal.direction;
+
+                    const cClass =
+                        confidenceClass(
+                            confidence
+                        );
+
+                    const dClass =
+                        direction ===
+                        "LONG"
+                            ? "long"
+                            : "short";
+
+                    const level =
+                        signal.confidence_level ||
+                        (
+                            confidence >=
+                            99
+                                ? "EXTREME"
+                                :
+                            confidence >=
+                            95
+                                ? "VERY HIGH"
+                                :
+                            confidence >=
+                            90
+                                ? "HIGH"
+                                :
+                            "WATCH"
+                        );
+
+                    const confirmation =
+                        number(
+                            signal.confirmation_percent
+                        );
+
+                    const reasons =
+                        (
+                            signal.reasons ||
+                            []
+                        )
+                        .slice(
+                            0,
+                            4
+                        )
+                        .map(
+                            reason =>
+                                `
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        reason
+                                    )}
+                                </span>
+                                `
+                        )
+                        .join("");
+
+
+                    return `
+                        <div
+                            class="
+                                card
+                                signal-card
+                                ${dClass}
+                            "
+                        >
+
+                            <div
+                                class="
+                                    signal-top
+                                "
+                            >
+
+                                <div>
+
+                                    <div class="symbol">
+
+                                        ${escapeHtml(
+                                            signal.coin ||
+                                            String(
+                                                signal.symbol ||
+                                                ""
+                                            )
+                                            .replace(
+                                                /USDT$/i,
+                                                ""
+                                            )
+                                        )}
+
+                                    </div>
+
+                                    <div
+                                        class="
+                                            direction
+                                            ${
+                                                direction ===
+                                                "LONG"
+                                                    ? "long-text"
+                                                    : "short-text"
+                                            }
+                                        "
+                                    >
+                                        ${escapeHtml(
+                                            direction
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        confidence
+                                        ${cClass}
+                                    "
+                                >
+                                    ${confidence.toFixed(
+                                        1
+                                    )}%
+                                </div>
+
+                            </div>
+
+
+                            <div class="signal-footer">
+
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        level
+                                    )}
+                                </span>
+
+                                <span class="badge">
+                                    ${escapeHtml(
+                                        signal.market ||
+                                        "futures"
+                                    )}
+                                </span>
+
+                                ${
+                                    confirmation > 0
+                                        ? `
+                                            <span class="badge">
+                                                ${confirmation.toFixed(
+                                                    0
+                                                )}% confirmations
+                                            </span>
+                                        `
+                                        : ""
+                                }
+
+                            </div>
+
+
+                            <div class="signal-grid">
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Price
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.price
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Entry
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.entry
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        Stop Loss
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.stop_loss
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        R:R
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${number(
+                                            signal.risk_reward
+                                        ).toFixed(
+                                            2
+                                        )}R
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP1
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp1
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP2
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp2
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        TP3
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${money(
+                                            signal.tp3
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div class="mini">
+
+                                    <div class="mini-label">
+                                        24H Volume
+                                    </div>
+
+                                    <div class="mini-value">
+                                        ${compact(
+                                            signal.quote_volume_24h
+                                        )}
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="signal-footer">
+
+                                ${reasons}
+
+                            </div>
+
+                        </div>
+                    `;
+
+                }
+            )
+            .join("");
+}
+
+
+// =========================================================
+// AUTO REFRESH
+// =========================================================
 
 async function refreshAutoSignals() {
 
@@ -2719,11 +3365,14 @@ async function refreshAutoSignals() {
         const data =
             await response.json();
 
-        if (!response.ok || !data.success) {
+        if (
+            !response.ok ||
+            !data.success
+        ) {
 
             throw new Error(
                 data.detail ||
-                "Automatic scanner unavailable"
+                "Auto signal request failed."
             );
 
         }
@@ -2740,9 +3389,9 @@ async function refreshAutoSignals() {
             "count90"
         ).textContent =
             allSignals.filter(
-                x =>
+                item =>
                     number(
-                        x.confidence
+                        item.confidence
                     ) >= 90
             ).length;
 
@@ -2750,9 +3399,9 @@ async function refreshAutoSignals() {
             "count95"
         ).textContent =
             allSignals.filter(
-                x =>
+                item =>
                     number(
-                        x.confidence
+                        item.confidence
                     ) >= 95
             ).length;
 
@@ -2760,28 +3409,20 @@ async function refreshAutoSignals() {
             "count99"
         ).textContent =
             allSignals.filter(
-                x =>
+                item =>
                     number(
-                        x.confidence
+                        item.confidence
                     ) >= 99
             ).length;
 
         document.getElementById(
             "lastUpdated"
         ).textContent =
-            data.last_scan
-            ? (
-                "Updated "
-                +
-                new Date(
-                    data.last_scan
-                ).toLocaleTimeString()
-            )
-            : "Waiting for first scan...";
+            "Updated " +
+            new Date()
+                .toLocaleTimeString();
 
         renderSignals();
-
-        await refreshCandidates();
 
     } catch (err) {
 
@@ -2789,43 +3430,19 @@ async function refreshAutoSignals() {
             "signalError"
         ).textContent =
             err.message ||
-            "Automatic scanner unavailable.";
+            "Unable to refresh signals.";
 
     }
 
+    refreshAutoStatus();
+
+    refreshCandidates();
 }
 
 
-async function refreshCandidates() {
-
-    try {
-
-        const response =
-            await fetch(
-                "/api/auto/candidates?limit=12"
-            );
-
-        const data =
-            await response.json();
-
-        if (
-            response.ok &&
-            data.success
-        ) {
-
-            renderCandidates(
-                data.candidates || []
-            );
-
-        }
-
-    } catch {
-        // Keep dashboard usable even if
-        // candidate refresh fails.
-    }
-
-}
-
+// =========================================================
+// AUTO STATUS
+// =========================================================
 
 async function refreshAutoStatus() {
 
@@ -2849,80 +3466,59 @@ async function refreshAutoStatus() {
         document.getElementById(
             "autoUniverse"
         ).textContent =
-            data.scanned_universe || 0;
+            data.scanned_universe ||
+            0;
 
         document.getElementById(
             "autoDeep"
         ).textContent =
-            data.deep_analyzed || 0;
+            data.deep_analyzed ||
+            0;
 
         document.getElementById(
             "autoNext"
         ).textContent =
-            `${
-                number(
-                    data.next_scan_in_seconds
-                )
-            }s`;
+            `${data.next_scan_in_seconds || 0}s`;
 
         document.getElementById(
             "autoStatusText"
         ).textContent =
             data.running
-            ? "Deep analysis is running..."
-            : (
-                data.last_scan
-                ? "Automatic scanning is active."
-                : "Waiting for first automatic scan..."
-            );
+                ? "Deep analysis is running..."
+                : data.error
+                    ? (
+                        "Scanner error: " +
+                        data.error
+                    )
+                    : "Background scanner is running every 60 seconds.";
 
-    } catch {
-        // Silent background status failure.
+    } catch (err) {
+
+        document.getElementById(
+            "autoStatusText"
+        ).textContent =
+            "Auto scanner status unavailable.";
+
     }
-
 }
 
 
-async function searchCoins() {
+// =========================================================
+// CANDIDATE LIST
+// =========================================================
 
-    const input =
-        document.getElementById(
-            "coinSearch"
-        );
+async function refreshCandidates() {
 
     const container =
         document.getElementById(
-            "searchSuggestions"
+            "candidateGrid"
         );
-
-    const query =
-        String(
-            input.value || ""
-        )
-        .toUpperCase()
-        .replace(
-            /USDT$/i,
-            ""
-        )
-        .trim();
-
-    if (!query) {
-
-        container.style.display =
-            "none";
-
-        return;
-
-    }
-
 
     try {
 
         const response =
             await fetch(
-                `/api/search?q=${encodeURIComponent(
-                    query
-                )}&market=futures`
+                "/api/auto/candidates?limit=12"
             );
 
         const data =
@@ -2933,78 +3529,303 @@ async function searchCoins() {
             !data.success
         ) {
 
-            container.style.display =
-                "none";
-
             return;
 
         }
 
-        const coins =
-            data.coins || [];
+        const candidates =
+            data.candidates || [];
 
-        if (!coins.length) {
+        if (
+            candidates.length === 0
+        ) {
 
-            container.innerHTML = `
-                <div
-                    class="search-item"
-                    style="color:#8491a5;"
-                >
-                    No matching Futures coin.
+            container.innerHTML =
+                `
+                <div class="card empty">
+                    Waiting for candidate universe...
                 </div>
-            `;
-
-            container.style.display =
-                "block";
+                `;
 
             return;
 
         }
-
 
         container.innerHTML =
-            coins
-                .slice(0, 10)
-                .map(
-                    item => `
+            candidates.map(
+                item => {
+
+                    const coin =
+                        escapeHtml(
+                            item.coin ||
+                            String(
+                                item.symbol ||
+                                ""
+                            ).replace(
+                                /USDT$/i,
+                                ""
+                            )
+                        );
+
+                    return `
                         <div
-                            class="search-item"
-                            onclick="
-                                analyzeCoin(
-                                    '${escapeHtml(
-                                        item.coin
-                                    )}'
-                                );
-                                document.getElementById(
-                                    'searchSuggestions'
-                                ).style.display='none';
+                            class="card"
+                            style="
+                                padding:15px;
                             "
                         >
-                            <strong>
-                                ${escapeHtml(
-                                    item.coin
-                                )}
-                            </strong>
 
-                            <span class="muted">
-                                USDT Perpetual
-                            </span>
+                            <div
+                                style="
+                                    display:flex;
+                                    justify-content:
+                                        space-between;
+                                    gap:10px;
+                                "
+                            >
+
+                                <strong>
+                                    $${coin}
+                                </strong>
+
+                                <span class="badge">
+                                    Score
+                                    ${number(
+                                        item.candidate_score
+                                    ).toFixed(
+                                        0
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    24H Change
+                                </span>
+
+                                <span>
+                                    ${number(
+                                        item.price_change_24h
+                                    ).toFixed(
+                                        2
+                                    )}%
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    Price
+                                </span>
+
+                                <span>
+                                    ${money(
+                                        item.price
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="tf-row">
+
+                                <span>
+                                    24H Quote Volume
+                                </span>
+
+                                <span>
+                                    ${compact(
+                                        item.quote_volume_24h
+                                    )}
+                                </span>
+
+                            </div>
+
                         </div>
-                    `
-                )
-                .join("");
+                    `;
 
-        container.style.display =
-            "block";
+                }
+            ).join("");
 
-    } catch {
+    } catch (err) {
 
-        container.style.display =
-            "none";
+        // Keep the existing dashboard
+        // alive if the candidate request fails.
+
+    }
+}
+
+
+// =========================================================
+// POST GENERATOR
+// =========================================================
+
+async function generateBinancePost() {
+
+    const input =
+        document.getElementById(
+            "coinSearch"
+        );
+
+    const postBox =
+        document.getElementById(
+            "binancePost"
+        );
+
+    const status =
+        document.getElementById(
+            "postStatus"
+        );
+
+    const coin =
+        String(
+            input.value || ""
+        )
+        .toUpperCase()
+        .replace(
+            /USDT$/i,
+            ""
+        )
+        .trim();
+
+    if (!coin) {
+
+        status.textContent =
+            "Enter a coin first.";
+
+        input.focus();
+
+        return;
+    }
+
+    status.textContent =
+        "Generating post...";
+
+    postBox.value =
+        "";
+
+    try {
+
+        const response =
+            await fetch(
+                `/api/post/generate?symbol=${encodeURIComponent(
+                    coin
+                )}&market=futures`
+            );
+
+        const result =
+            await response.json();
+
+        if (
+            !response.ok
+        ) {
+
+            throw new Error(
+                result.detail ||
+                result.error ||
+                "Post generation failed."
+            );
+
+        }
+
+        const generated =
+            result.post ||
+            {};
+
+        postBox.value =
+            generated.post ||
+            "";
+
+        status.textContent =
+            `Generated for $${coin}`;
+
+    } catch (err) {
+
+        status.textContent =
+            err.message ||
+            "Unable to generate post.";
+
+    }
+}
+
+
+async function copyBinancePost() {
+
+    const postBox =
+        document.getElementById(
+            "binancePost"
+        );
+
+    const status =
+        document.getElementById(
+            "postStatus"
+        );
+
+    const text =
+        postBox.value || "";
+
+    if (
+        !text.trim()
+    ) {
+
+        status.textContent =
+            "Generate a post first.";
+
+        return;
 
     }
 
+    try {
+
+        await navigator.clipboard.writeText(
+            text
+        );
+
+        status.textContent =
+            "Post copied.";
+
+    } catch (err) {
+
+        postBox.select();
+
+        document.execCommand(
+            "copy"
+        );
+
+        status.textContent =
+            "Post copied.";
+
+    }
 }
+
+
+// =========================================================
+// EVENT LISTENERS
+// =========================================================
+
+document
+    .getElementById(
+        "filter"
+    )
+    .addEventListener(
+        "change",
+        renderSignals
+    );
+
+
+document
+    .getElementById(
+        "directionFilter"
+    )
+    .addEventListener(
+        "change",
+        renderSignals
+    );
 
 
 document
@@ -3013,16 +3834,21 @@ document
     )
     .addEventListener(
         "input",
-        () => {
+        event => {
 
             clearTimeout(
                 searchTimer
             );
 
-            searchTimer = setTimeout(
-                searchCoins,
-                180
-            );
+            searchTimer =
+                setTimeout(
+                    () => {
+                        searchCoins(
+                            event.target.value
+                        );
+                    },
+                    250
+                );
 
         }
     );
@@ -3057,76 +3883,86 @@ document
 
 document
     .getElementById(
-        "filter"
+        "market"
     )
     .addEventListener(
         "change",
-        renderSignals
-    );
+        () => {
 
+            allSignals = [];
 
-document
-    .getElementById(
-        "directionFilter"
-    )
-    .addEventListener(
-        "change",
-        renderSignals
-    );
-
-
-document
-    .addEventListener(
-        "click",
-        event => {
-
-            const searchWrap =
-                document.querySelector(
-                    ".search-wrap"
-                );
-
-            const suggestions =
-                document.getElementById(
-                    "searchSuggestions"
-                );
+            document.getElementById(
+                "searchSuggestions"
+            ).style.display =
+                "none";
 
             if (
-                searchWrap &&
-                !searchWrap.contains(
-                    event.target
-                )
+                document.getElementById(
+                    "market"
+                ).value ===
+                "futures"
             ) {
 
-                suggestions.style.display =
-                    "none";
+                searchCoins(
+                    document.getElementById(
+                        "coinSearch"
+                    ).value
+                );
 
             }
+
+            refreshAutoSignals();
 
         }
     );
 
 
+// =========================================================
+// CLOSE SEARCH SUGGESTIONS
+// =========================================================
+
+document.addEventListener(
+    "click",
+    event => {
+
+        const wrap =
+            document.querySelector(
+                ".search-wrap"
+            );
+
+        if (
+            wrap &&
+            !wrap.contains(
+                event.target
+            )
+        ) {
+
+            document.getElementById(
+                "searchSuggestions"
+            ).style.display =
+                "none";
+
+        }
+
+    }
+);
+
+
+// =========================================================
+// START
+// =========================================================
+
 window.addEventListener(
     "load",
-    async () => {
+    () => {
 
-        await refreshAutoStatus();
+        refreshAutoSignals();
 
-        await refreshAutoSignals();
-
-        // Status is polled frequently so the dashboard
-        // shows the automatic scanner state without the
-        // user pressing anything.
-        setInterval(
-            refreshAutoStatus,
-            5_000
-        );
-
-        // Signals/candidates are refreshed automatically.
-        setInterval(
-            refreshAutoSignals,
-            10_000
-        );
+        autoPollTimer =
+            setInterval(
+                refreshAutoSignals,
+                15_000
+            );
 
     }
 );
@@ -3135,7 +3971,6 @@ window.addEventListener(
 
 
 </body>
-
 </html>
 """
 
