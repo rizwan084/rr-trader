@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader — Paper Trading
+    </title>
+
+</head>
+
+
+<body>
+
+    <main>
+
+        <header>
+
+            <h1>
+                RR Trader Paper Trading
+            </h1>
+
+            <p>
+                Simulated trading with risk-controlled execution.
+            </p>
+
+        </header>
+
+
+        <section>
+
+            <h2>
+                Trading Mode
+            </h2>
+
+            <div>
+
+                <strong>
+                    PAPER ONLY
+                </strong>
+
+                <p>
+                    Live trading is disabled during development.
+                </p>
+
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Open Positions
+            </h2>
+
+            <div id="positions">
+                Loading positions...
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Trade History
+            </h2>
+
+            <div id="history">
+                Loading history...
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Trade Engine Status
+            </h2>
+
+            <div id="engine-status">
+                Checking...
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <script>
+
+        // =====================================================
+        // LOAD POSITIONS
+        // =====================================================
+
+        async function loadPositions() {
+
+            const container =
+                document.getElementById(
+                    "positions"
+                );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/trade/positions"
+                    );
+
+                const data =
+                    await response.json();
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    container.textContent =
+                        "Unable to load positions.";
+
+                    return;
+
+                }
+
+                const positions =
+                    Array.isArray(
+                        data.positions
+                    )
+                        ? data.positions
+                        : [];
+
+
+                if (
+                    positions.length === 0
+                ) {
+
+                    container.textContent =
+                        "No open paper positions.";
+
+                    return;
+
+                }
+
+
+                container.innerHTML =
+                    "";
+
+
+                positions.forEach(
+                    function (position) {
+
+                        const card =
+                            document.createElement(
+                                "article"
+                            );
+
+
+                        card.innerHTML = `
+
+                            <h3>
+                                ${
+                                    String(
+                                        position.symbol
+                                        || "UNKNOWN"
+                                    ).toUpperCase()
+                                }
+                            </h3>
+
+                            <p>
+                                Direction:
+                                ${
+                                    String(
+                                        position.direction
+                                        || "NEUTRAL"
+                                    ).toUpperCase()
+                                }
+                            </p>
+
+                            <p>
+                                Entry:
+                                ${
+                                    position.entry
+                                    ?? "-"
+                                }
+                            </p>
+
+                            <p>
+                                Stop Loss:
+                                ${
+                                    position.stop_loss
+                                    ?? "-"
+                                }
+                            </p>
+
+                            <p>
+                                Status:
+                                ${
+                                    position.status
+                                    || "OPEN"
+                                }
+                            </p>
+
+                        `;
+
+
+                        container.appendChild(
+                            card
+                        );
+
+                    }
+                );
+
+            } catch (error) {
+
+                container.textContent =
+                    "Backend unavailable.";
+
+            }
+
+        }
+
+
+        // =====================================================
+        // LOAD HISTORY
+        // =====================================================
+
+        async function loadHistory() {
+
+            const container =
+                document.getElementById(
+                    "history"
+                );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/trade/history"
+                    );
+
+                const data =
+                    await response.json();
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    container.textContent =
+                        "Unable to load trade history.";
+
+                    return;
+
+                }
+
+
+                const trades =
+                    Array.isArray(
+                        data.trades
+                    )
+                        ? data.trades
+                        : [];
+
+
+                if (
+                    trades.length === 0
+                ) {
+
+                    container.textContent =
+                        "No closed paper trades.";
+
+                    return;
+
+                }
+
+
+                container.innerHTML =
+                    "";
+
+
+                trades.forEach(
+                    function (trade) {
+
+                        const card =
+                            document.createElement(
+                                "article"
+                            );
+
+
+                        card.innerHTML = `
+
+                            <h3>
+                                ${
+                                    String(
+                                        trade.symbol
+                                        || "UNKNOWN"
+                                    ).toUpperCase()
+                                }
+                            </h3>
+
+                            <p>
+                                Direction:
+                                ${
+                                    String(
+                                        trade.direction
+                                        || "NEUTRAL"
+                                    ).toUpperCase()
+                                }
+                            </p>
+
+                            <p>
+                                Entry:
+                                ${
+                                    trade.entry
+                                    ?? "-"
+                                }
+                            </p>
+
+                            <p>
+                                Exit:
+                                ${
+                                    trade.exit_price
+                                    ?? "-"
+                                }
+                            </p>
+
+                            <p>
+                                PnL:
+                                ${
+                                    trade.pnl_percent
+                                    ?? "-"
+                                }%
+                            </p>
+
+                            <p>
+                                Result:
+                                ${
+                                    trade.result
+                                    || "CLOSED"
+                                }
+                            </p>
+
+                        `;
+
+
+                        container.appendChild(
+                            card
+                        );
+
+                    }
+                );
+
+            } catch (error) {
+
+                container.textContent =
+                    "Backend unavailable.";
+
+            }
+
+        }
+
+
+        // =====================================================
+        // ENGINE STATUS
+        // =====================================================
+
+        async function loadEngineStatus() {
+
+            const container =
+                document.getElementById(
+                    "engine-status"
+                );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/trade/status"
+                    );
+
+                const data =
+                    await response.json();
+
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    container.textContent =
+                        "Trade engine unavailable.";
+
+                    return;
+
+                }
+
+
+                container.innerHTML = `
+
+                    <p>
+                        Mode:
+                        <strong>
+                            ${
+                                data.mode
+                                || "paper"
+                            }
+                        </strong>
+                    </p>
+
+                    <p>
+                        Live Trading:
+                        <strong>
+                            ${
+                                data.live_trading
+                                ? "ENABLED"
+                                : "DISABLED"
+                            }
+                        </strong>
+                    </p>
+
+                    <p>
+                        Status:
+                        <strong>
+                            ${
+                                data.status
+                                || "unknown"
+                            }
+                        </strong>
+                    </p>
+
+                `;
+
+            } catch (error) {
+
+                container.textContent =
+                    "Backend unavailable.";
+
+            }
+
+        }
+
+
+        // =====================================================
+        // INITIAL LOAD
+        // =====================================================
+
+        loadPositions();
+        loadHistory();
+        loadEngineStatus();
+
+    </script>
+
+</body>
+
+</html>
