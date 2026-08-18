@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from ..config import Settings
+from ..clients.binance import BinanceClient
+from .confidence_engine import ConfidenceEngine
 
 
 class MarketScanner:
@@ -119,6 +121,17 @@ class MarketScanner:
 
         # Maximum symbols analyzed at one time.
         self.symbol_semaphore = asyncio.Semaphore(2)
+
+        # Advanced market intelligence.
+        self.binance_client = BinanceClient(
+            self.settings
+        )
+
+        self.confidence_engine = ConfidenceEngine(
+            min_confidence=float(
+                self.min_confidence
+            )
+        )
 
     # =========================================================
     # SAFE FLOAT
@@ -1406,6 +1419,17 @@ class MarketScanner:
                 confidence,
                 2,
             ),
+            "confidence_level": confidence_level,
+            "confirmation_count": confirmation_count,
+            "total_confirmation_factors": total_confirmation_factors,
+            "confirmation_percent": round(
+                confirmation_percent,
+                2,
+            ),
+            "confidence_details": (
+                confidence_result.to_dict()
+            ),
+            "market_microstructure": microstructure,
             "score": round(
                 max(
                     bullish_score,
@@ -2091,6 +2115,359 @@ class MarketScanner:
         return reasons
 
     # =========================================================
+    # ADVANCED MARKET INTELLIGENCE
+    # =========================================================
+
+    async def analyze_market_microstructure(
+        self,
+        symbol: str,
+        market: str = "futures",
+    ) -> Dict[str, Any]:
+        """Collect advanced public Binance market data.
+
+        Futures: order book, open interest, OI history, funding,
+        global/top-trader long-short ratios and liquidations.
+        Spot: order book only. Individual failures are isolated.
+        """
+
+        symbol = self.normalize_symbol(symbol)
+        market = self.validate_market(market)
+
+        result: Dict[str, Any] = {
+            "order_book": {},
+            "open_interest": {},
+            "open_interest_history": [],
+            "funding": [],
+            "global_long_short": [],
+            "top_trader_long_short": [],
+            "liquidations": [],
+        }
+
+        async def safe_call(key: str, coro: Any, default: Any) -> None:
+            try:
+                result[key] = await coro
+            except Exception as exc:
+                result[key] = default
+                result[f"{key}_error"] = str(exc)
+
+        tasks = [
+            safe_call(
+                "order_book",
+                self.binance_client.depth(
+                    symbol=symbol,
+                    limit=100,
+                    market=market,
+                ),
+                {},
+            )
+        ]
+
+        if market == "futures":
+            tasks.extend([
+                safe_call(
+                    "open_interest",
+                    self.binance_client.open_interest(
+                        symbol=symbol
+                    ),
+                    {},
+                ),
+                safe_call(
+                    "open_interest_history",
+                    self.binance_client.open_interest_history(
+                        symbol=symbol,
+                        period="5m",
+                        limit=30,
+                    ),
+                    [],
+                ),
+                safe_call(
+                    "funding",
+                    self.binance_client.funding_rate(
+                        symbol=symbol,
+                        limit=20,
+                    ),
+                    [],
+                ),
+                safe_call(
+                    "global_long_short",
+                    self.binance_client.global_long_short_ratio(
+                        symbol=symbol,
+                        period="5m",
+                        limit=30,
+                    ),
+                    [],
+                ),
+                safe_call(
+                    "top_trader_long_short",
+                    self.binance_client.top_trader_long_short_ratio(
+                        symbol=symbol,
+                        period="5m",
+                        limit=30,
+                    ),
+                    [],
+                ),
+                safe_call(
+                    "liquidations",
+                    self.binance_client.liquidation_orders(
+                        symbol=symbol,
+                        limit=100,
+                    ),
+                    [],
+                ),
+            ])
+
+        await asyncio.gather(*tasks)
+        return result
+
+    @staticmethod
+    def build_microstructure_factors(
+        data: Dict[str, Any],
+        price_change_pct: float = 0.0,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Turn raw market data into directional confirmations."""
+
+        factors: Dict[str, Dict[str, Any]] = {}
+
+        # -----------------------------------------------------
+        # ORDER BOOK IMBALANCE
+        # -----------------------------------------------------
+        book = data.get("order_book") or {}
+        bids = book.get("bids", []) if isinstance(book, dict) else []
+        asks = book.get("asks", []) if isinstance(book, dict) else []
+
+        bid_volume = 0.0
+        ask_volume = 0.0
+
+        for level in bids:
+            try:
+                bid_volume += float(level[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+
+        for level in asks:
+            try:
+                ask_volume += float(level[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+
+        book_total = bid_volume + ask_volume
+        imbalance = (
+            (bid_volume - ask_volume) / book_total
+            if book_total > 0
+            else 0.0
+        )
+
+        if imbalance >= 0.08:
+            factors["order_book"] = {
+                "direction": "bullish",
+                "strength": min(abs(imbalance) * 4.0, 1.0),
+                "reason": f"bid/ask imbalance {imbalance:+.2%}",
+            }
+        elif imbalance <= -0.08:
+            factors["order_book"] = {
+                "direction": "bearish",
+                "strength": min(abs(imbalance) * 4.0, 1.0),
+                "reason": f"bid/ask imbalance {imbalance:+.2%}",
+            }
+        else:
+            factors["order_book"] = {
+                "direction": "neutral",
+                "strength": 0.0,
+                "reason": "order-book imbalance is neutral",
+            }
+
+        # -----------------------------------------------------
+        # OPEN INTEREST + PRICE RELATIONSHIP
+        # -----------------------------------------------------
+        history = data.get("open_interest_history") or []
+        oi_change = 0.0
+
+        if isinstance(history, list) and len(history) >= 2:
+            try:
+                old_oi = float(history[0].get("sumOpenInterest", 0))
+                new_oi = float(history[-1].get("sumOpenInterest", 0))
+                if old_oi > 0:
+                    oi_change = (new_oi - old_oi) / old_oi
+            except (TypeError, ValueError, AttributeError):
+                oi_change = 0.0
+
+        oi_strength = min(abs(oi_change) * 12.0, 1.0)
+
+        if oi_change >= 0.01 and price_change_pct > 0:
+            oi_direction = "bullish"
+            oi_reason = "price and open interest are rising"
+        elif oi_change >= 0.01 and price_change_pct < 0:
+            oi_direction = "bearish"
+            oi_reason = "price is falling while open interest rises"
+        elif oi_change <= -0.01 and price_change_pct > 0:
+            oi_direction = "bullish"
+            oi_reason = "price rises while open interest falls (short covering)"
+        elif oi_change <= -0.01 and price_change_pct < 0:
+            oi_direction = "bearish"
+            oi_reason = "price falls while open interest falls (long unwinding)"
+        else:
+            oi_direction = "neutral"
+            oi_reason = "open-interest confirmation is neutral"
+            oi_strength = 0.0
+
+        factors["open_interest"] = {
+            "direction": oi_direction,
+            "strength": oi_strength,
+            "reason": oi_reason,
+        }
+
+        # -----------------------------------------------------
+        # FUNDING
+        # -----------------------------------------------------
+        funding_rows = data.get("funding") or []
+        funding_rate = 0.0
+
+        if isinstance(funding_rows, list) and funding_rows:
+            try:
+                funding_rate = float(
+                    funding_rows[-1].get("fundingRate", 0)
+                )
+            except (TypeError, ValueError, AttributeError):
+                funding_rate = 0.0
+
+        if funding_rate >= 0.001:
+            funding_direction = "bearish"
+            funding_strength = min(abs(funding_rate) * 100.0, 1.0)
+            funding_reason = "positive funding indicates crowded longs"
+        elif funding_rate <= -0.001:
+            funding_direction = "bullish"
+            funding_strength = min(abs(funding_rate) * 100.0, 1.0)
+            funding_reason = "negative funding indicates crowded shorts"
+        else:
+            funding_direction = "neutral"
+            funding_strength = 0.0
+            funding_reason = "funding is near neutral"
+
+        factors["funding"] = {
+            "direction": funding_direction,
+            "strength": funding_strength,
+            "reason": funding_reason,
+        }
+
+        # -----------------------------------------------------
+        # LONG / SHORT POSITIONING
+        # -----------------------------------------------------
+        ratios = data.get("global_long_short") or []
+        top_ratios = data.get("top_trader_long_short") or []
+
+        def latest_ratio(rows: Any) -> float:
+            if not isinstance(rows, list) or not rows:
+                return 0.0
+            try:
+                row = rows[-1]
+                return float(
+                    row.get(
+                        "longShortRatio",
+                        0,
+                    )
+                )
+            except (TypeError, ValueError, AttributeError):
+                return 0.0
+
+        global_ratio = latest_ratio(ratios)
+        top_ratio = latest_ratio(top_ratios)
+
+        positioning_ratio = 0.0
+        if global_ratio > 0 and top_ratio > 0:
+            positioning_ratio = (global_ratio + top_ratio) / 2.0
+        elif global_ratio > 0:
+            positioning_ratio = global_ratio
+        elif top_ratio > 0:
+            positioning_ratio = top_ratio
+
+        if positioning_ratio >= 1.15:
+            positioning_direction = "bearish"
+            positioning_reason = "long positioning is crowded"
+            positioning_strength = min(
+                (positioning_ratio - 1.0) * 4.0,
+                1.0,
+            )
+        elif positioning_ratio <= 0.87 and positioning_ratio > 0:
+            positioning_direction = "bullish"
+            positioning_reason = "short positioning is relatively crowded"
+            positioning_strength = min(
+                (1.0 - positioning_ratio) * 4.0,
+                1.0,
+            )
+        else:
+            positioning_direction = "neutral"
+            positioning_reason = "long/short positioning is balanced"
+            positioning_strength = 0.0
+
+        factors["positioning"] = {
+            "direction": positioning_direction,
+            "strength": positioning_strength,
+            "reason": positioning_reason,
+        }
+
+        # -----------------------------------------------------
+        # LIQUIDATIONS
+        # -----------------------------------------------------
+        liquidations = data.get("liquidations") or []
+        long_liquidations = 0.0
+        short_liquidations = 0.0
+
+        if isinstance(liquidations, list):
+            for item in liquidations:
+                try:
+                    side = str(item.get("side", "")).upper()
+                    quantity = float(item.get("origQty", 0))
+                    price = float(
+                        item.get(
+                            "averagePrice",
+                            item.get("price", 0),
+                        )
+                    )
+                    notional = quantity * price
+                    if side == "SELL":
+                        long_liquidations += notional
+                    elif side == "BUY":
+                        short_liquidations += notional
+                except (TypeError, ValueError, AttributeError):
+                    continue
+
+        liquidation_total = long_liquidations + short_liquidations
+
+        if liquidation_total > 0:
+            liquidation_imbalance = (
+                short_liquidations - long_liquidations
+            ) / liquidation_total
+        else:
+            liquidation_imbalance = 0.0
+
+        if liquidation_imbalance >= 0.20:
+            liquidation_direction = "bullish"
+            liquidation_reason = "short liquidations dominate"
+            liquidation_strength = min(
+                abs(liquidation_imbalance) * 2.0,
+                1.0,
+            )
+        elif liquidation_imbalance <= -0.20:
+            liquidation_direction = "bearish"
+            liquidation_reason = "long liquidations dominate"
+            liquidation_strength = min(
+                abs(liquidation_imbalance) * 2.0,
+                1.0,
+            )
+        else:
+            liquidation_direction = "neutral"
+            liquidation_reason = "liquidation pressure is balanced"
+            liquidation_strength = 0.0
+
+        factors["liquidations"] = {
+            "direction": liquidation_direction,
+            "strength": liquidation_strength,
+            "reason": liquidation_reason,
+        }
+
+        return factors
+
+    # =========================================================
     # SINGLE SYMBOL SCAN
     # =========================================================
 
@@ -2326,58 +2703,32 @@ class MarketScanner:
         )
 
         # -----------------------------------------------------
-        # Liquidity adjustment
+        # ADVANCED MARKET DATA
         # -----------------------------------------------------
 
-        liquidity_score = float(
-            liquidity.get(
-                "liquidity_score",
+        price_change_24h = self._float(
+            ticker.get(
+                "priceChangePercent",
                 0,
             )
         )
 
-        # Liquidity max +5
-        confidence += min(
-            5.0,
-            liquidity_score * 0.5,
-        )
-
-        # -----------------------------------------------------
-        # Strong agreement bonus.
-        #
-        # This allows genuinely aligned
-        # timeframes to reach 90+.
-        # -----------------------------------------------------
-
-        agreement_ratio = float(
-            combined.get(
-                "agreement_ratio",
-                0,
+        microstructure = (
+            await self.analyze_market_microstructure(
+                symbol=symbol,
+                market=market,
             )
         )
 
-        if agreement_ratio >= 0.90:
-
-            confidence += 8
-
-        elif agreement_ratio >= 0.80:
-
-            confidence += 5
-
-        elif agreement_ratio >= 0.70:
-
-            confidence += 2
-
-        confidence = max(
-            0.0,
-            min(
-                confidence,
-                100.0,
-            ),
+        micro_factors = (
+            self.build_microstructure_factors(
+                microstructure,
+                price_change_pct=price_change_24h,
+            )
         )
 
         # -----------------------------------------------------
-        # 15m execution timeframe
+        # BUILD EXPLAINABLE CONFIDENCE FACTORS
         # -----------------------------------------------------
 
         analysis_15m = (
@@ -2387,48 +2738,234 @@ class MarketScanner:
             )
         )
 
-        atr_15m = float(
+        atr_15m = self._float(
             analysis_15m.get(
                 "atr",
                 0,
             )
         )
 
-        current_price = (
-            self._float(
-                ticker.get(
-                    "lastPrice",
-                    analysis_15m.get(
-                        "price",
-                        0,
-                    ),
-                )
+        current_price = self._float(
+            ticker.get(
+                "lastPrice",
+                analysis_15m.get(
+                    "price",
+                    0,
+                ),
             )
         )
 
-        trade_levels = (
-            self.calculate_trade_levels(
-                direction=direction,
-                price=current_price,
-                atr_value=atr_15m,
+        # Use the existing multi-timeframe direction as the
+        # primary trend anchor.
+        direction = combined.get(
+            "direction",
+            "NEUTRAL",
+        )
+
+        agreement_ratio = self._float(
+            combined.get(
+                "agreement_ratio",
+                0,
             )
         )
 
-        # -----------------------------------------------------
-        # Reasons
-        # -----------------------------------------------------
-
-        reasons = (
-            self.build_final_reasons(
-                combined=combined,
-                analysis_15m=analysis_15m,
-                liquidity=liquidity,
+        momentum_15m = self._float(
+            analysis_15m.get(
+                "momentum",
+                0,
             )
         )
 
+        volume_ratio_15m = self._float(
+            analysis_15m.get(
+                "volume_ratio",
+                1,
+            )
+        )
+
+        rr_preview = self.calculate_trade_levels(
+            direction=direction,
+            price=current_price,
+            atr_value=atr_15m,
+        )
+
+        preview_rr = self._float(
+            rr_preview.get(
+                "risk_reward",
+                0,
+            )
+        )
+
+        factors: Dict[str, Dict[str, Any]] = {}
+
+        factors["trend"] = {
+            "direction": (
+                "bullish"
+                if direction == "LONG"
+                else "bearish"
+                if direction == "SHORT"
+                else "neutral"
+            ),
+            "strength": min(
+                max(agreement_ratio, 0.0),
+                1.0,
+            ),
+            "reason": (
+                f"multi-timeframe agreement {agreement_ratio:.0%}"
+            ),
+        }
+
+        factors["momentum"] = {
+            "direction": (
+                "bullish"
+                if momentum_15m > 0
+                else "bearish"
+                if momentum_15m < 0
+                else "neutral"
+            ),
+            "strength": min(
+                abs(momentum_15m) / 2.0,
+                1.0,
+            ),
+            "reason": (
+                f"15m momentum {momentum_15m:+.3f}%"
+            ),
+        }
+
+        volume_direction = (
+            "bullish"
+            if direction == "LONG"
+            else "bearish"
+            if direction == "SHORT"
+            else "neutral"
+        )
+
+        factors["volume"] = {
+            "direction": volume_direction,
+            "strength": min(
+                max(
+                    (volume_ratio_15m - 1.0) / 1.5,
+                    0.0,
+                ),
+                1.0,
+            ),
+            "reason": (
+                f"15m volume ratio {volume_ratio_15m:.2f}x"
+            ),
+        }
+
+        factors["market_structure"] = {
+            "direction": (
+                "bullish"
+                if direction == "LONG"
+                else "bearish"
+                if direction == "SHORT"
+                else "neutral"
+            ),
+            "strength": min(
+                max(agreement_ratio, 0.0) + 0.10,
+                1.0,
+            ),
+            "reason": "multi-timeframe market structure",
+        }
+
+        # Support/resistance is deliberately neutral until the
+        # dedicated automatic S/R engine is added. We do not
+        # fabricate confirmation.
+        factors["support_resistance"] = {
+            "direction": "neutral",
+            "strength": 0.0,
+            "reason": "automatic support/resistance engine pending",
+        }
+
+        factors["risk_reward"] = {
+            "direction": (
+                "bullish"
+                if direction == "LONG"
+                else "bearish"
+                if direction == "SHORT"
+                else "neutral"
+            ),
+            "strength": min(
+                preview_rr / 3.0,
+                1.0,
+            ) if direction != "NEUTRAL" else 0.0,
+            "reason": f"R:R preview {preview_rr:.2f}",
+        }
+
+        factors.update(micro_factors)
+
+        confidence_result = (
+            self.confidence_engine.calculate(
+                factors
+            )
+        )
+
+        direction = confidence_result.direction
+        confidence = confidence_result.confidence
+
+        # Require a minimum amount of independent confirmation.
+        confirmation_count = sum(
+            1
+            for item in factors.values()
+            if str(item.get("direction", "neutral")).lower()
+            in {"bullish", "bearish", "long", "short"}
+            and self._float(
+                item.get("strength", 0),
+                0,
+            ) > 0
+        )
+
+        total_confirmation_factors = len(
+            self.confidence_engine.FACTOR_WEIGHTS
+        )
+
+        confirmation_percent = (
+            confirmation_count
+            / total_confirmation_factors
+            * 100.0
+            if total_confirmation_factors > 0
+            else 0.0
+        )
+
+        if confidence >= 95:
+            confidence_level = "VERY_HIGH"
+        elif confidence >= 90:
+            confidence_level = "HIGH"
+        elif confidence >= 80:
+            confidence_level = "MEDIUM_HIGH"
+        elif confidence >= 70:
+            confidence_level = "MEDIUM"
+        else:
+            confidence_level = "LOW"
+
         # -----------------------------------------------------
-        # Publishable
+        # Final trade levels use the final direction.
         # -----------------------------------------------------
+
+        trade_levels = self.calculate_trade_levels(
+            direction=direction,
+            price=current_price,
+            atr_value=atr_15m,
+        )
+
+        reasons = self.build_final_reasons(
+            combined=combined,
+            analysis_15m=analysis_15m,
+            liquidity=liquidity,
+        )
+
+        reasons.extend(
+            confidence_result.reasons
+        )
+
+        reasons = list(
+            dict.fromkeys(
+                str(reason)
+                for reason in reasons
+                if reason
+            )
+        )
 
         publishable = (
             direction
@@ -2436,19 +2973,9 @@ class MarketScanner:
                 "LONG",
                 "SHORT",
             }
-            and confidence
-            >= self.min_confidence
-            and agreement_ratio
-            >= 0.70
-        )
-
-        price_change_24h = (
-            self._float(
-                ticker.get(
-                    "priceChangePercent",
-                    0,
-                )
-            )
+            and confidence >= self.min_confidence
+            and agreement_ratio >= 0.70
+            and confirmation_count >= 4
         )
 
         quote_volume_24h = (
