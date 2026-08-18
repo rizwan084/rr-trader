@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import random
 from typing import Any, Optional
 
 import httpx
@@ -56,6 +58,19 @@ class BinanceClient:
             "Accept": "application/json",
         }
 
+        self._client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=self.headers,
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+            ),
+        )
+
+        self._request_semaphore = asyncio.Semaphore(8)
+        self._ticker_cache: dict[str, tuple[float, Any]] = {}
+        self._ticker_cache_ttl = 15.0
+
     # =========================================================
     # BASE URL
     # =========================================================
@@ -93,21 +108,55 @@ class BinanceClient:
             dict[str, Any]
         ] = None,
     ) -> Any:
+        """Rate-limited Binance request with retry/backoff for 429/418."""
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            headers=self.headers,
-        ) as client:
+        last_error: Optional[Exception] = None
 
-            response = await client.request(
-                method=method,
-                url=url,
-                params=params,
-            )
+        for attempt in range(5):
+            try:
+                async with self._request_semaphore:
+                    response = await self._client.request(
+                        method=method,
+                        url=url,
+                        params=params,
+                    )
 
-            response.raise_for_status()
+                if response.status_code in {429, 418}:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        delay = float(retry_after) if retry_after else 0.0
+                    except ValueError:
+                        delay = 0.0
 
-            return response.json()
+                    if delay <= 0:
+                        delay = min(12.0, 1.5 * (2 ** attempt))
+
+                    delay += random.uniform(0.05, 0.35)
+                    if attempt == 4:
+                        response.raise_for_status()
+
+                    await asyncio.sleep(delay)
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_error = exc
+                if attempt == 4:
+                    raise
+                await asyncio.sleep(min(4.0, 0.5 * (2 ** attempt)))
+
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if attempt == 4:
+                    raise
+                await asyncio.sleep(min(4.0, 0.5 * (2 ** attempt)))
+
+        if last_error:
+            raise last_error
+
+        raise RuntimeError("Binance request failed unexpectedly")
 
     # =========================================================
     # EXCHANGE INFORMATION
@@ -164,11 +213,20 @@ class BinanceClient:
                 symbol.upper()
             )
 
-        return await self._request(
+        cache_key = f"{market}:{symbol.upper() if symbol else '*'}"
+        now = asyncio.get_running_loop().time()
+        cached = self._ticker_cache.get(cache_key)
+        if cached and (now - cached[0]) < self._ticker_cache_ttl:
+            return cached[1]
+
+        data = await self._request(
             "GET",
             f"{base}{endpoint}",
             params=params,
         )
+
+        self._ticker_cache[cache_key] = (now, data)
+        return data
 
     # =========================================================
     # KLINES / CANDLES
@@ -433,11 +491,7 @@ class BinanceClient:
     # =========================================================
 
     async def close(self) -> None:
-        """
-        Reserved for future persistent HTTP
-        client support.
-        """
-        return None
+        await self._client.aclose()
 
 
 __all__ = [
