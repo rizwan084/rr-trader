@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader
+    </title>
+
+    <meta
+        name="description"
+        content="RR Trader Live Crypto Trading Intelligence"
+    >
+</head>
+
+<body>
+
+    <div id="app">
+
+        <header id="topbar">
+
+            <div id="brand">
+
+                <h1>
+                    RR Trader
+                </h1>
+
+                <p>
+                    Live Crypto Trading Intelligence
+                </p>
+
+            </div>
+
+            <div id="system-status">
+                Backend: Connecting...
+            </div>
+
+        </header>
+
+
+        <nav id="navigation">
+
+            <a href="/dashboard">
+                Overview
+            </a>
+
+            <a href="/dashboard/opportunities">
+                Trade Opportunities
+            </a>
+
+            <a href="/dashboard/search">
+                Market Search
+            </a>
+
+            <a href="/dashboard/signals">
+                Signals
+            </a>
+
+            <a href="/dashboard/ai">
+                AI Assistant
+            </a>
+
+            <a href="/dashboard/charts">
+                Charts
+            </a>
+
+            <a href="/dashboard/paper-trading">
+                Paper Trading
+            </a>
+
+            <a href="/dashboard/analytics">
+                History / Analytics
+            </a>
+
+            <a href="/dashboard/settings">
+                Settings
+            </a>
+
+        </nav>
+
+
+        <main id="main-content">
+
+            <section class="hero">
+
+                <h2>
+                    RR Trader Dashboard
+                </h2>
+
+                <p>
+                    Professional crypto market analysis,
+                    trading intelligence and risk control.
+                </p>
+
+            </section>
+
+
+            <section class="dashboard-grid">
+
+                <article class="dashboard-card">
+                    <h3>
+                        Market Scanner
+                    </h3>
+
+                    <p>
+                        Full-market opportunity detection.
+                    </p>
+
+                    <strong>
+                        15m / 1H / 4H
+                    </strong>
+                </article>
+
+
+                <article class="dashboard-card">
+                    <h3>
+                        Trade Opportunities
+                    </h3>
+
+                    <p>
+                        High-quality LONG and SHORT setups.
+                    </p>
+
+                    <strong>
+                        LONG / SHORT / NO TRADE
+                    </strong>
+                </article>
+
+
+                <article class="dashboard-card">
+                    <h3>
+                        24-Point Analysis
+                    </h3>
+
+                    <p>
+                        Market confirmations and risk gates.
+                    </p>
+
+                    <strong>
+                        24 Points
+                    </strong>
+                </article>
+
+
+                <article class="dashboard-card">
+                    <h3>
+                        AI Assistant
+                    </h3>
+
+                    <p>
+                        Explain analysis and generate trading posts.
+                    </p>
+
+                    <strong>
+                        AI READY
+                    </strong>
+                </article>
+
+
+                <article class="dashboard-card">
+                    <h3>
+                        Charts
+                    </h3>
+
+                    <p>
+                        Professional market charting.
+                    </p>
+
+                    <strong>
+                        15m / 1H / 4H
+                    </strong>
+                </article>
+
+
+                <article class="dashboard-card">
+                    <h3>
+                        Paper Trading
+                    </h3>
+
+                    <p>
+                        Risk-controlled simulated execution.
+                    </p>
+
+                    <strong>
+                        PAPER MODE
+                    </strong>
+                </article>
+
+            </section>
+
+        </main>
+
+    </div>
+
+
+    <script>
+
+        async function checkBackend() {
+
+            const statusElement =
+                document.getElementById(
+                    "system-status"
+                );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/health"
+                    );
+
+                const data =
+                    await response.json();
+
+                if (
+                    response.ok &&
+                    data.success
+                ) {
+
+                    statusElement.textContent =
+                        "Backend: Online";
+
+                } else {
+
+                    statusElement.textContent =
+                        "Backend: Error";
+                }
+
+            } catch (error) {
+
+                statusElement.textContent =
+                    "Backend: Offline";
+
+            }
+
+        }
+
+
+        checkBackend();
+
+    </script>
+
+</body>
+
+</html>
