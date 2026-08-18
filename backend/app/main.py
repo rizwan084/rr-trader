@@ -16,66 +16,32 @@ from app.services.auto_scanner import auto_scanner
 
 
 # =========================================================
-# RR TRADER
-# APPLICATION PATHS
+# PROJECT PATHS
 # =========================================================
 
-# File:
-# backend/app/main.py
-#
-# parents[0] = backend/app
-# parents[1] = backend
-# parents[2] = project root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-PROJECT_ROOT = (
-    Path(__file__)
-    .resolve()
-    .parents[2]
-)
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 
-FRONTEND_DIR = (
-    PROJECT_ROOT / "frontend"
-)
-
-FRONTEND_INDEX = (
-    FRONTEND_DIR / "index.html"
-)
-
-PAGES_DIR = (
-    FRONTEND_DIR / "pages"
-)
-
-SERVICES_DIR = (
-    FRONTEND_DIR / "services"
-)
-
-CHARTS_DIR = (
-    FRONTEND_DIR / "charts"
-)
-
-COMPONENTS_DIR = (
-    FRONTEND_DIR / "components"
-)
-
-ASSETS_DIR = (
-    FRONTEND_DIR / "assets"
-)
+PAGES_DIR = FRONTEND_DIR / "pages"
+SERVICES_DIR = FRONTEND_DIR / "services"
+CHARTS_DIR = FRONTEND_DIR / "charts"
+COMPONENTS_DIR = FRONTEND_DIR / "components"
+ASSETS_DIR = FRONTEND_DIR / "assets"
 
 
 # =========================================================
-# FASTAPI APPLICATION
+# APPLICATION
 # =========================================================
 
 app = FastAPI(
-    title=(
-        "RR Trader Live Crypto Trading Scanner"
-    ),
+    title="RR Trader Live Crypto Trading Scanner",
     description=(
-        "AI-powered cryptocurrency "
-        "market scanner and trading "
-        "analysis platform."
+        "AI-powered crypto market scanner "
+        "and trading analysis platform."
     ),
-    version="2.0.0",
+    version="2.1.0",
 )
 
 
@@ -83,89 +49,54 @@ app = FastAPI(
 # FRONTEND STATIC FILES
 # =========================================================
 
-# ---------------------------------------------------------
-# HTML pages
-# ---------------------------------------------------------
-
 if PAGES_DIR.is_dir():
-
     app.mount(
         "/pages",
         StaticFiles(
-            directory=str(
-                PAGES_DIR
-            ),
+            directory=str(PAGES_DIR),
             html=True,
         ),
-        name="frontend-pages",
+        name="pages",
     )
 
 
-# ---------------------------------------------------------
-# Frontend services
-# ---------------------------------------------------------
-
 if SERVICES_DIR.is_dir():
-
     app.mount(
         "/frontend-services",
         StaticFiles(
-            directory=str(
-                SERVICES_DIR
-            ),
+            directory=str(SERVICES_DIR),
         ),
         name="frontend-services",
     )
 
 
-# ---------------------------------------------------------
-# Frontend chart assets
-# ---------------------------------------------------------
-
 if CHARTS_DIR.is_dir():
-
     app.mount(
         "/frontend-charts",
         StaticFiles(
-            directory=str(
-                CHARTS_DIR
-            ),
+            directory=str(CHARTS_DIR),
         ),
         name="frontend-charts",
     )
 
 
-# ---------------------------------------------------------
-# Frontend components
-# ---------------------------------------------------------
-
 if COMPONENTS_DIR.is_dir():
-
     app.mount(
         "/frontend-components",
         StaticFiles(
-            directory=str(
-                COMPONENTS_DIR
-            ),
+            directory=str(COMPONENTS_DIR),
         ),
         name="frontend-components",
     )
 
 
-# ---------------------------------------------------------
-# General assets
-# ---------------------------------------------------------
-
 if ASSETS_DIR.is_dir():
-
     app.mount(
         "/assets",
         StaticFiles(
-            directory=str(
-                ASSETS_DIR
-            ),
+            directory=str(ASSETS_DIR),
         ),
-        name="frontend-assets",
+        name="assets",
     )
 
 
@@ -175,32 +106,16 @@ if ASSETS_DIR.is_dir():
 
 @app.get("/")
 async def root():
-    """
-    Main application entry point.
-
-    Serves the dashboard frontend when available.
-    """
-
     if FRONTEND_INDEX.is_file():
-
         return FileResponse(
-            path=str(
-                FRONTEND_INDEX
-            ),
+            str(FRONTEND_INDEX),
             media_type="text/html",
         )
 
     return {
         "success": False,
-        "app": "RR Trader",
-        "status": "online",
-        "version": "2.0.0",
-        "error": (
-            "Dashboard frontend not found."
-        ),
-        "frontend_path": str(
-            FRONTEND_INDEX
-        ),
+        "error": "Dashboard frontend not found.",
+        "frontend_path": str(FRONTEND_INDEX),
     }
 
 
@@ -210,33 +125,16 @@ async def root():
 
 @app.get("/dashboard")
 async def dashboard():
-    """
-    Dashboard entry point.
-
-    Uses the same frontend index page,
-    so the dashboard remains in the
-    same application/window.
-    """
-
     if FRONTEND_INDEX.is_file():
-
         return FileResponse(
-            path=str(
-                FRONTEND_INDEX
-            ),
+            str(FRONTEND_INDEX),
             media_type="text/html",
         )
 
     return {
         "success": False,
-        "app": "RR Trader",
-        "status": "online",
-        "error": (
-            "Dashboard frontend not found."
-        ),
-        "frontend_path": str(
-            FRONTEND_INDEX
-        ),
+        "error": "Dashboard frontend not found.",
+        "frontend_path": str(FRONTEND_INDEX),
     }
 
 
@@ -247,54 +145,28 @@ async def dashboard():
 @app.get("/health")
 async def health():
 
-    scanner = (
-        auto_scanner.snapshot()
-    )
+    scanner_state = {}
+
+    try:
+        scanner_state = auto_scanner.snapshot()
+    except Exception as exc:
+        scanner_state = {
+            "running": False,
+            "error": str(exc),
+        }
 
     return {
         "success": True,
         "app": "RR Trader",
         "status": "healthy",
-        "version": "2.0.0",
-
+        "version": "2.1.0",
         "frontend": {
-            "directory_exists":
-                FRONTEND_DIR.is_dir(),
-
-            "index_exists":
-                FRONTEND_INDEX.is_file(),
-
-            "pages_exists":
-                PAGES_DIR.is_dir(),
-
-            "charts_exists":
-                CHARTS_DIR.is_dir(),
+            "directory_exists": FRONTEND_DIR.is_dir(),
+            "index_exists": FRONTEND_INDEX.is_file(),
+            "pages_exists": PAGES_DIR.is_dir(),
+            "charts_exists": CHARTS_DIR.is_dir(),
         },
-
-        "scanner": {
-            "running":
-                scanner.get(
-                    "running",
-                    False,
-                ),
-
-            "market":
-                scanner.get(
-                    "market",
-                    "futures",
-                ),
-
-            "refresh_seconds":
-                scanner.get(
-                    "refresh_seconds",
-                    60,
-                ),
-
-            "next_scan_in_seconds":
-                scanner.get(
-                    "next_scan_in_seconds"
-                ),
-        },
+        "scanner": scanner_state,
     }
 
 
@@ -302,68 +174,34 @@ async def health():
 # API ROUTERS
 # =========================================================
 
-# ---------------------------------------------------------
-# Main market / analysis API
-# ---------------------------------------------------------
-
 app.include_router(
     main_router,
     prefix="/api",
-    tags=[
-        "Markets",
-    ],
+    tags=["Markets"],
 )
-
-
-# ---------------------------------------------------------
-# Trade engine API
-# ---------------------------------------------------------
 
 app.include_router(
     trade_router,
     prefix="/api",
-    tags=[
-        "Trade Engine",
-    ],
+    tags=["Trade Engine"],
 )
-
-
-# ---------------------------------------------------------
-# AI API
-# ---------------------------------------------------------
 
 app.include_router(
     ai_router,
     prefix="/api",
-    tags=[
-        "AI",
-    ],
+    tags=["AI"],
 )
-
-
-# ---------------------------------------------------------
-# Dashboard API
-# ---------------------------------------------------------
 
 app.include_router(
     dashboard_router,
     prefix="/api",
-    tags=[
-        "Dashboard",
-    ],
+    tags=["Dashboard"],
 )
-
-
-# ---------------------------------------------------------
-# Scanner API
-# ---------------------------------------------------------
 
 app.include_router(
     scanner_router,
     prefix="/api",
-    tags=[
-        "Scanner",
-    ],
+    tags=["Scanner"],
 )
 
 
@@ -374,13 +212,9 @@ app.include_router(
 @app.on_event("startup")
 async def startup_event():
 
-    print(
-        "========================================"
-    )
-
-    print(
-        "RR Trader backend starting..."
-    )
+    print("=" * 60)
+    print("RR TRADER STARTING")
+    print("=" * 60)
 
     print(
         f"Project root: {PROJECT_ROOT}"
@@ -388,67 +222,44 @@ async def startup_event():
 
     print(
         f"Frontend directory: "
-        f"{FRONTEND_DIR}"
+        f"{FRONTEND_DIR.is_dir()}"
     )
 
     print(
-        f"Frontend index exists: "
+        f"Frontend index: "
         f"{FRONTEND_INDEX.is_file()}"
     )
 
     print(
-        f"Pages directory exists: "
+        f"Pages directory: "
         f"{PAGES_DIR.is_dir()}"
     )
 
     print(
-        f"Charts directory exists: "
+        f"Charts directory: "
         f"{CHARTS_DIR.is_dir()}"
-    )
-
-    print(
-        "Starting automatic Binance Futures scanner..."
     )
 
     try:
 
         await auto_scanner.start()
 
-        scanner = (
-            auto_scanner.snapshot()
+        print(
+            "RR Trader automatic scanner started."
         )
 
         print(
-            "Automatic scanner started successfully."
-        )
-
-        print(
-            f"Scanner market: "
-            f"{scanner.get('market', 'futures')}"
-        )
-
-        print(
-            "Scanner interval: "
-            f"{scanner.get('refresh_seconds', 60)} seconds"
+            "Scanner refresh: 60 seconds."
         )
 
     except Exception as exc:
 
         print(
-            "Scanner startup error:"
+            "Scanner startup warning:",
+            exc,
         )
 
-        print(
-            str(exc)
-        )
-
-    print(
-        "RR Trader backend startup complete."
-    )
-
-    print(
-        "========================================"
-    )
+    print("=" * 60)
 
 
 # =========================================================
@@ -459,35 +270,20 @@ async def startup_event():
 async def shutdown_event():
 
     print(
-        "========================================"
-    )
-
-    print(
-        "Stopping RR Trader auto scanner..."
+        "Stopping RR Trader scanner..."
     )
 
     try:
 
         await auto_scanner.stop()
 
-        print(
-            "Auto scanner stopped successfully."
-        )
-
     except Exception as exc:
 
         print(
-            "Scanner shutdown error:"
-        )
-
-        print(
-            str(exc)
+            "Scanner shutdown warning:",
+            exc,
         )
 
     print(
-        "RR Trader backend shutting down."
-    )
-
-    print(
-        "========================================"
+        "RR Trader backend stopped."
     )
