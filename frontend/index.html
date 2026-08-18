@@ -2,6 +2,7 @@
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
 
     <meta
@@ -9,242 +10,2698 @@
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>
-        RR Trader
-    </title>
+    <title>RR Trader</title>
 
-    <meta
-        name="description"
-        content="RR Trader Live Crypto Trading Intelligence"
-    >
-</head>
+    <style>
 
-<body>
+        :root {
+            --bg: #070b14;
+            --panel: #111827;
+            --panel-2: #151f32;
+            --border: #273247;
+            --text: #f4f7fb;
+            --muted: #8e9ab0;
+            --blue: #2388ff;
+            --green: #20c997;
+            --red: #ff5c6c;
+            --yellow: #f6c85f;
+        }
 
-    <div id="app">
+        * {
+            box-sizing: border-box;
+        }
 
-        <header id="topbar">
+        body {
+            margin: 0;
+            background:
+                radial-gradient(
+                    circle at top right,
+                    #14213d 0%,
+                    var(--bg) 45%
+                );
+            color: var(--text);
+            font-family:
+                Inter,
+                Arial,
+                sans-serif;
+        }
 
-            <div id="brand">
+        button,
+        input,
+        select {
+            font: inherit;
+        }
 
-                <h1>
-                    RR Trader
-                </h1>
+        button {
+            cursor: pointer;
+        }
 
-                <p>
-                    Live Crypto Trading Intelligence
-                </p>
+        .app {
+            min-height: 100vh;
+        }
 
-            </div>
+        /* =====================================================
+           TOP BAR
+        ===================================================== */
 
-            <div id="system-status">
-                Backend: Connecting...
-            </div>
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
 
-        </header>
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
 
+            padding: 16px 24px;
 
-        <nav id="navigation">
+            border-bottom:
+                1px solid var(--border);
 
-            <a href="/dashboard">
-                Overview
-            </a>
-
-            <a href="/dashboard/opportunities">
-                Trade Opportunities
-            </a>
-
-            <a href="/dashboard/search">
-                Market Search
-            </a>
-
-            <a href="/dashboard/signals">
-                Signals
-            </a>
-
-            <a href="/dashboard/ai">
-                AI Assistant
-            </a>
-
-            <a href="/dashboard/charts">
-                Charts
-            </a>
-
-            <a href="/dashboard/paper-trading">
-                Paper Trading
-            </a>
-
-            <a href="/dashboard/analytics">
-                History / Analytics
-            </a>
-
-            <a href="/dashboard/settings">
-                Settings
-            </a>
-
-        </nav>
-
-
-        <main id="main-content">
-
-            <section class="hero">
-
-                <h2>
-                    RR Trader Dashboard
-                </h2>
-
-                <p>
-                    Professional crypto market analysis,
-                    trading intelligence and risk control.
-                </p>
-
-            </section>
-
-
-            <section class="dashboard-grid">
-
-                <article class="dashboard-card">
-                    <h3>
-                        Market Scanner
-                    </h3>
-
-                    <p>
-                        Full-market opportunity detection.
-                    </p>
-
-                    <strong>
-                        15m / 1H / 4H
-                    </strong>
-                </article>
-
-
-                <article class="dashboard-card">
-                    <h3>
-                        Trade Opportunities
-                    </h3>
-
-                    <p>
-                        High-quality LONG and SHORT setups.
-                    </p>
-
-                    <strong>
-                        LONG / SHORT / NO TRADE
-                    </strong>
-                </article>
-
-
-                <article class="dashboard-card">
-                    <h3>
-                        24-Point Analysis
-                    </h3>
-
-                    <p>
-                        Market confirmations and risk gates.
-                    </p>
-
-                    <strong>
-                        24 Points
-                    </strong>
-                </article>
-
-
-                <article class="dashboard-card">
-                    <h3>
-                        AI Assistant
-                    </h3>
-
-                    <p>
-                        Explain analysis and generate trading posts.
-                    </p>
-
-                    <strong>
-                        AI READY
-                    </strong>
-                </article>
-
-
-                <article class="dashboard-card">
-                    <h3>
-                        Charts
-                    </h3>
-
-                    <p>
-                        Professional market charting.
-                    </p>
-
-                    <strong>
-                        15m / 1H / 4H
-                    </strong>
-                </article>
-
-
-                <article class="dashboard-card">
-                    <h3>
-                        Paper Trading
-                    </h3>
-
-                    <p>
-                        Risk-controlled simulated execution.
-                    </p>
-
-                    <strong>
-                        PAPER MODE
-                    </strong>
-                </article>
-
-            </section>
-
-        </main>
-
-    </div>
-
-
-    <script>
-
-        async function checkBackend() {
-
-            const statusElement =
-                document.getElementById(
-                    "system-status"
+            background:
+                rgba(
+                    7,
+                    11,
+                    20,
+                    0.92
                 );
 
-            try {
+            backdrop-filter: blur(12px);
+        }
 
-                const response =
-                    await fetch(
-                        "/api/health"
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .brand p {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+
+            padding:
+                8px 12px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 999px;
+
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+
+            border-radius: 50%;
+
+            background: var(--green);
+
+            box-shadow:
+                0 0 10px
+                rgba(
+                    32,
+                    201,
+                    151,
+                    0.65
+                );
+        }
+
+        /* =====================================================
+           NAV
+        ===================================================== */
+
+        .nav {
+            display: flex;
+            gap: 8px;
+
+            padding:
+                12px 24px;
+
+            border-bottom:
+                1px solid var(--border);
+
+            overflow-x: auto;
+        }
+
+        .nav button {
+            background: transparent;
+            color: var(--muted);
+
+            border:
+                1px solid transparent;
+
+            padding:
+                9px 14px;
+
+            border-radius: 9px;
+        }
+
+        .nav button:hover,
+        .nav button.active {
+            color: var(--text);
+
+            border-color:
+                var(--border);
+
+            background:
+                var(--panel);
+        }
+
+        /* =====================================================
+           MAIN
+        ===================================================== */
+
+        .container {
+            width: min(
+                1450px,
+                calc(100% - 32px)
+            );
+
+            margin:
+                20px auto 60px;
+        }
+
+        .toolbar {
+            display: grid;
+            grid-template-columns:
+                1fr
+                180px
+                180px
+                150px;
+
+            gap: 10px;
+
+            margin-bottom: 18px;
+        }
+
+        input,
+        select {
+            width: 100%;
+
+            background:
+                var(--panel);
+
+            color:
+                var(--text);
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                10px;
+
+            padding:
+                12px 14px;
+
+            outline: none;
+        }
+
+        input:focus,
+        select:focus {
+            border-color:
+                var(--blue);
+        }
+
+        .primary {
+            border: 0;
+
+            border-radius:
+                10px;
+
+            color: white;
+
+            font-weight: 700;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #1597ff,
+                    #6557ff
+                );
+        }
+
+        .secondary {
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                10px;
+
+            color: var(--text);
+
+            background:
+                var(--panel);
+        }
+
+        /* =====================================================
+           HERO
+        ===================================================== */
+
+        .hero {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+
+            padding:
+                22px;
+
+            margin-bottom:
+                18px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                16px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    rgba(
+                        35,
+                        136,
+                        255,
+                        0.12
+                    ),
+                    rgba(
+                        101,
+                        87,
+                        255,
+                        0.08
+                    ),
+                    var(--panel)
+                );
+        }
+
+        .hero h2 {
+            margin:
+                0 0 8px;
+
+            font-size:
+                26px;
+        }
+
+        .hero p {
+            margin: 0;
+
+            color:
+                var(--muted);
+        }
+
+        .scan-meta {
+            text-align: right;
+            color:
+                var(--muted);
+
+            font-size:
+                12px;
+        }
+
+        .scan-meta strong {
+            display: block;
+
+            color:
+                var(--text);
+
+            font-size:
+                20px;
+
+            margin-bottom:
+                4px;
+        }
+
+        /* =====================================================
+           METRICS
+        ===================================================== */
+
+        .metrics {
+            display: grid;
+
+            grid-template-columns:
+                repeat(
+                    4,
+                    1fr
+                );
+
+            gap:
+                12px;
+
+            margin-bottom:
+                18px;
+        }
+
+        .metric {
+            padding:
+                18px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                14px;
+
+            background:
+                linear-gradient(
+                    180deg,
+                    var(--panel-2),
+                    var(--panel)
+                );
+        }
+
+        .metric-label {
+            color:
+                var(--muted);
+
+            font-size:
+                11px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                0.08em;
+        }
+
+        .metric-value {
+            margin-top:
+                8px;
+
+            font-size:
+                28px;
+
+            font-weight:
+                800;
+        }
+
+        /* =====================================================
+           SECTION
+        ===================================================== */
+
+        .section {
+            margin-bottom:
+                18px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            margin-bottom:
+                10px;
+        }
+
+        .section-header h3 {
+            margin: 0;
+            font-size: 17px;
+        }
+
+        .section-header span {
+            color:
+                var(--muted);
+
+            font-size:
+                12px;
+        }
+
+        /* =====================================================
+           CANDIDATES
+        ===================================================== */
+
+        .candidates {
+            display: grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+
+            gap:
+                12px;
+        }
+
+        .candidate {
+            padding:
+                16px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                14px;
+
+            background:
+                var(--panel);
+        }
+
+        .candidate-top {
+            display: flex;
+
+            justify-content:
+                space-between;
+
+            margin-bottom:
+                12px;
+        }
+
+        .candidate-symbol {
+            font-weight:
+                800;
+
+            font-size:
+                16px;
+        }
+
+        .score {
+            padding:
+                5px 8px;
+
+            border-radius:
+                999px;
+
+            background:
+                #1d293d;
+
+            color:
+                var(--yellow);
+
+            font-size:
+                11px;
+        }
+
+        .candidate-row {
+            display:
+                flex;
+
+            justify-content:
+                space-between;
+
+            margin-top:
+                7px;
+
+            font-size:
+                12px;
+        }
+
+        .candidate-row span:first-child {
+            color:
+                var(--muted);
+        }
+
+        /* =====================================================
+           SIGNALS
+        ===================================================== */
+
+        .signal-list {
+            display:
+                grid;
+
+            gap:
+                10px;
+        }
+
+        .signal {
+            display:
+                grid;
+
+            grid-template-columns:
+                1.2fr
+                0.8fr
+                0.8fr
+                1fr
+                1fr;
+
+            gap:
+                14px;
+
+            align-items:
+                center;
+
+            padding:
+                14px 16px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                12px;
+
+            background:
+                var(--panel);
+        }
+
+        .signal-symbol {
+            font-weight:
+                800;
+        }
+
+        .direction-long {
+            color:
+                var(--green);
+            font-weight:
+                800;
+        }
+
+        .direction-short {
+            color:
+                var(--red);
+            font-weight:
+                800;
+        }
+
+        .confidence {
+            font-weight:
+                800;
+        }
+
+        .signal-small {
+            color:
+                var(--muted);
+
+            font-size:
+                11px;
+        }
+
+        /* =====================================================
+           ANALYSIS
+        ===================================================== */
+
+        .analysis-grid {
+            display:
+                grid;
+
+            grid-template-columns:
+                1.5fr
+                1fr;
+
+            gap:
+                12px;
+        }
+
+        .panel {
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                14px;
+
+            background:
+                var(--panel);
+
+            padding:
+                18px;
+        }
+
+        .panel h4 {
+            margin:
+                0 0 14px;
+        }
+
+        .analysis-header {
+            display:
+                flex;
+
+            justify-content:
+                space-between;
+
+            align-items:
+                center;
+        }
+
+        .big-signal {
+            font-size:
+                28px;
+
+            font-weight:
+                900;
+        }
+
+        .confidence-ring {
+            width:
+                78px;
+
+            height:
+                78px;
+
+            border-radius:
+                50%;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            background:
+                conic-gradient(
+                    var(--blue)
+                    var(--confidence),
+                    #1a2334 0
+                );
+
+            position:
+                relative;
+        }
+
+        .confidence-ring::after {
+            content: "";
+
+            position:
+                absolute;
+
+            width:
+                60px;
+
+            height:
+                60px;
+
+            border-radius:
+                50%;
+
+            background:
+                var(--panel);
+        }
+
+        .confidence-ring span {
+            position:
+                relative;
+
+            z-index:
+                2;
+
+            font-size:
+                14px;
+
+            font-weight:
+                800;
+        }
+
+        .levels {
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    5,
+                    1fr
+                );
+
+            gap:
+                8px;
+
+            margin-top:
+                18px;
+        }
+
+        .level {
+            padding:
+                10px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                10px;
+
+            background:
+                #0d1421;
+        }
+
+        .level label {
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                10px;
+
+            margin-bottom:
+                5px;
+        }
+
+        .level strong {
+            font-size:
+                12px;
+        }
+
+        .mtf-grid {
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+
+            gap:
+                8px;
+
+            margin-top:
+                16px;
+        }
+
+        .mtf {
+            padding:
+                12px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius:
+                10px;
+
+            background:
+                #0d1421;
+
+            text-align:
+                center;
+        }
+
+        .mtf span {
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                10px;
+
+            margin-bottom:
+                5px;
+        }
+
+        .mtf strong {
+            font-size:
+                16px;
+        }
+
+        .reason-list {
+            margin:
+                0;
+
+            padding-left:
+                18px;
+
+            color:
+                var(--muted);
+
+            line-height:
+                1.7;
+
+            font-size:
+                13px;
+        }
+
+        /* =====================================================
+           PAPER TRADING
+        ===================================================== */
+
+        .paper-grid {
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    4,
+                    1fr
+                );
+
+            gap:
+                12px;
+        }
+
+        /* =====================================================
+           EMPTY
+        ===================================================== */
+
+        .empty {
+            padding:
+                28px;
+
+            text-align:
+                center;
+
+            color:
+                var(--muted);
+
+            border:
+                1px dashed var(--border);
+
+            border-radius:
+                12px;
+
+            background:
+                #0c121e;
+        }
+
+        /* =====================================================
+           RESPONSIVE
+        ===================================================== */
+
+        @media (
+            max-width: 1000px
+        ) {
+
+            .toolbar {
+                grid-template-columns:
+                    1fr 1fr;
+            }
+
+            .metrics {
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
                     );
+            }
 
-                const data =
-                    await response.json();
+            .candidates {
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
+                    );
+            }
 
-                if (
-                    response.ok &&
-                    data.success
-                ) {
+            .analysis-grid {
+                grid-template-columns:
+                    1fr;
+            }
 
-                    statusElement.textContent =
-                        "Backend: Online";
-
-                } else {
-
-                    statusElement.textContent =
-                        "Backend: Error";
-                }
-
-            } catch (error) {
-
-                statusElement.textContent =
-                    "Backend: Offline";
-
+            .paper-grid {
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
+                    );
             }
 
         }
 
+        @media (
+            max-width: 650px
+        ) {
 
-        checkBackend();
+            .topbar {
+                padding:
+                    14px 16px;
+            }
 
-    </script>
+            .nav {
+                padding:
+                    10px 16px;
+            }
+
+            .container {
+                width:
+                    calc(
+                        100% - 20px
+                    );
+            }
+
+            .toolbar {
+                grid-template-columns:
+                    1fr;
+            }
+
+            .metrics,
+            .candidates,
+            .paper-grid {
+                grid-template-columns:
+                    1fr;
+            }
+
+            .signal {
+                grid-template-columns:
+                    1fr 1fr;
+            }
+
+            .levels {
+                grid-template-columns:
+                    repeat(
+                        2,
+                        1fr
+                    );
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+<div class="app">
+
+    <!-- =====================================================
+         TOP BAR
+    ====================================================== -->
+
+    <header class="topbar">
+
+        <div class="brand">
+
+            <h1>
+                RR Trader
+            </h1>
+
+            <p>
+                Live Crypto Trading Intelligence
+            </p>
+
+        </div>
+
+        <div class="system-status">
+
+            <span class="status-dot"></span>
+
+            <span id="backend-status">
+                Backend checking...
+            </span>
+
+        </div>
+
+    </header>
+
+
+    <!-- =====================================================
+         NAV
+    ====================================================== -->
+
+    <nav class="nav">
+
+        <button
+            class="active"
+            data-section="overview"
+        >
+            Overview
+        </button>
+
+        <button
+            data-section="opportunities"
+        >
+            Trade Opportunities
+        </button>
+
+        <button
+            data-section="signals"
+        >
+            Signals
+        </button>
+
+        <button
+            data-section="analysis"
+        >
+            Analysis
+        </button>
+
+        <button
+            data-section="paper"
+        >
+            Paper Trading
+        </button>
+
+        <button
+            data-section="settings"
+        >
+            Settings
+        </button>
+
+    </nav>
+
+
+    <main class="container">
+
+        <!-- =================================================
+             TOOLBAR
+        ================================================== -->
+
+        <section class="toolbar">
+
+            <input
+                id="symbol-input"
+                value="BTC"
+                placeholder="Search coin..."
+            >
+
+            <select id="market-select">
+
+                <option value="futures">
+                    Binance Futures
+                </option>
+
+                <option value="spot">
+                    Binance Spot
+                </option>
+
+            </select>
+
+            <select id="timeframe-select">
+
+                <option value="200">
+                    200 Candles
+                </option>
+
+                <option value="120">
+                    120 Candles
+                </option>
+
+                <option value="80">
+                    80 Candles
+                </option>
+
+            </select>
+
+            <button
+                class="primary"
+                id="analyze-button"
+            >
+                Analyze Coin
+            </button>
+
+        </section>
+
+
+        <!-- =================================================
+             HERO
+        ================================================== -->
+
+        <section class="hero">
+
+            <div>
+
+                <h2>
+                    Live Market Scanner
+                </h2>
+
+                <p id="hero-message">
+                    Scanning the market for high-quality setups...
+                </p>
+
+            </div>
+
+            <div class="scan-meta">
+
+                <strong id="scanner-count">
+                    0
+                </strong>
+
+                coins in universe
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             METRICS
+        ================================================== -->
+
+        <section class="metrics">
+
+            <div class="metric">
+
+                <div class="metric-label">
+                    90%+ Signals
+                </div>
+
+                <div
+                    class="metric-value"
+                    id="metric-90"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="metric">
+
+                <div class="metric-label">
+                    95%+ Signals
+                </div>
+
+                <div
+                    class="metric-value"
+                    id="metric-95"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="metric">
+
+                <div class="metric-label">
+                    99%+ Signals
+                </div>
+
+                <div
+                    class="metric-value"
+                    id="metric-99"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="metric">
+
+                <div class="metric-label">
+                    Publishable
+                </div>
+
+                <div
+                    class="metric-value"
+                    id="metric-publishable"
+                >
+                    0
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             TOP CANDIDATES
+        ================================================== -->
+
+        <section class="section">
+
+            <div class="section-header">
+
+                <h3>
+                    Top Market Candidates
+                </h3>
+
+                <span id="candidate-status">
+                    Loading...
+                </span>
+
+            </div>
+
+            <div
+                class="candidates"
+                id="candidates"
+            >
+
+                <div class="empty">
+                    Loading candidate universe...
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             SIGNALS
+        ================================================== -->
+
+        <section class="section">
+
+            <div class="section-header">
+
+                <h3>
+                    High Confidence Signals
+                </h3>
+
+                <span id="signals-updated">
+                    —
+                </span>
+
+            </div>
+
+            <div
+                class="signal-list"
+                id="signals-list"
+            >
+
+                <div class="empty">
+                    No signals loaded.
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             SELECTED ANALYSIS
+        ================================================== -->
+
+        <section class="section">
+
+            <div class="section-header">
+
+                <h3>
+                    Selected Symbol Analysis
+                </h3>
+
+                <span>
+                    15m / 1H / 4H
+                </span>
+
+            </div>
+
+            <div
+                id="analysis-container"
+                class="analysis-grid"
+            >
+
+                <div class="empty">
+                    Analyze a coin to view the full analysis.
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             PAPER TRADING
+        ================================================== -->
+
+        <section class="section">
+
+            <div class="section-header">
+
+                <h3>
+                    Paper Trading
+                </h3>
+
+                <span>
+                    Live orders disabled
+                </span>
+
+            </div>
+
+            <div
+                class="paper-grid"
+                id="paper-stats"
+            >
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Mode
+                    </div>
+
+                    <div class="metric-value">
+                        PAPER
+                    </div>
+
+                </div>
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Balance
+                    </div>
+
+                    <div class="metric-value">
+                        $1000
+                    </div>
+
+                </div>
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Open Positions
+                    </div>
+
+                    <div
+                        class="metric-value"
+                        id="paper-open"
+                    >
+                        0
+                    </div>
+
+                </div>
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Daily PnL
+                    </div>
+
+                    <div
+                        class="metric-value"
+                        id="paper-pnl"
+                    >
+                        $0.00
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<script type="module">
+
+    const API = "/api";
+
+
+    let lastAnalysis = null;
+
+
+    // =====================================================
+    // HELPERS
+    // =====================================================
+
+    function num(
+        value,
+        fallback = 0
+    ) {
+
+        const parsed =
+            Number(value);
+
+        return Number.isFinite(
+            parsed
+        )
+            ? parsed
+            : fallback;
+
+    }
+
+
+    function fmt(
+        value,
+        digits = 4
+    ) {
+
+        const number =
+            num(value);
+
+        if (
+            number === 0
+        ) {
+            return "0";
+        }
+
+        return number.toLocaleString(
+            undefined,
+            {
+                maximumFractionDigits:
+                    digits
+            }
+        );
+
+    }
+
+
+    function directionClass(
+        direction
+    ) {
+
+        return String(
+            direction || ""
+        ).toUpperCase()
+            === "LONG"
+
+            ? "direction-long"
+
+            : String(
+                direction || ""
+            ).toUpperCase()
+            === "SHORT"
+
+                ? "direction-short"
+
+                : "";
+
+    }
+
+
+    // =====================================================
+    // BACKEND STATUS
+    // =====================================================
+
+    async function loadHealth() {
+
+        const status =
+            document.getElementById(
+                "backend-status"
+            );
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API}/health`
+                );
+
+            const data =
+                await response.json();
+
+            if (
+                response.ok
+                && data.success
+            ) {
+
+                status.textContent =
+                    "Backend Online";
+
+            } else {
+
+                status.textContent =
+                    "Backend Error";
+
+            }
+
+        } catch (error) {
+
+            status.textContent =
+                "Backend Offline";
+
+        }
+
+    }
+
+
+    // =====================================================
+    // SCANNER
+    // =====================================================
+
+    async function loadScanner() {
+
+        const market =
+            document.getElementById(
+                "market-select"
+            ).value;
+
+        const candidatesElement =
+            document.getElementById(
+                "candidates"
+            );
+
+        const statusElement =
+            document.getElementById(
+                "candidate-status"
+            );
+
+        statusElement.textContent =
+            "Scanning...";
+
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API}/scan`
+                    + `?market=${encodeURIComponent(
+                        market
+                    )}`
+                    + `&limit=6`
+                    + `&candle_limit=120`
+                );
+
+            const data =
+                await response.json();
+
+
+            if (
+                !response.ok
+                || !data.success
+            ) {
+
+                throw new Error(
+                    data.error
+                    || "Scanner failed."
+                );
+
+            }
+
+
+            const candidates =
+                Array.isArray(
+                    data.candidates
+                )
+                    ? data.candidates
+                    : [];
+
+
+            document.getElementById(
+                "scanner-count"
+            ).textContent =
+                fmt(
+                    data.scanned_universe,
+                    0
+                );
+
+
+            statusElement.textContent =
+                `${data.deep_analyzed || 0} deep analyzed`;
+
+
+            if (
+                candidates.length === 0
+            ) {
+
+                candidatesElement.innerHTML = `
+                    <div class="empty">
+                        No market candidates returned.
+                    </div>
+                `;
+
+                return;
+
+            }
+
+
+            candidatesElement.innerHTML =
+                candidates.map(
+                    candidate => {
+
+                        const symbol =
+                            candidate.symbol
+                            || "UNKNOWN";
+
+                        const change =
+                            num(
+                                candidate.priceChangePercent
+                                ?? candidate.price_change_percent
+                            );
+
+                        const price =
+                            candidate.lastPrice
+                            ?? candidate.price
+                            ?? 0;
+
+                        const volume =
+                            candidate.quoteVolume
+                            ?? candidate.quote_volume
+                            ?? 0;
+
+                        const score =
+                            candidate.activity_score
+                            ?? candidate.score
+                            ?? 0;
+
+                        return `
+                            <article
+                                class="candidate"
+                            >
+
+                                <div
+                                    class="candidate-top"
+                                >
+
+                                    <div
+                                        class="candidate-symbol"
+                                    >
+                                        ${symbol}
+                                    </div>
+
+                                    <div
+                                        class="score"
+                                    >
+                                        Score ${fmt(
+                                            score,
+                                            1
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div
+                                    class="candidate-row"
+                                >
+
+                                    <span>
+                                        24H Change
+                                    </span>
+
+                                    <span>
+                                        ${fmt(
+                                            change,
+                                            2
+                                        )}%
+                                    </span>
+
+                                </div>
+
+
+                                <div
+                                    class="candidate-row"
+                                >
+
+                                    <span>
+                                        Price
+                                    </span>
+
+                                    <span>
+                                        ${fmt(
+                                            price,
+                                            6
+                                        )}
+                                    </span>
+
+                                </div>
+
+
+                                <div
+                                    class="candidate-row"
+                                >
+
+                                    <span>
+                                        24H Volume
+                                    </span>
+
+                                    <span>
+                                        ${fmt(
+                                            volume,
+                                            0
+                                        )}
+                                    </span>
+
+                                </div>
+
+                            </article>
+                        `;
+
+                    }
+                )
+                .join("");
+
+            // -------------------------------------------------
+            // Candidate analysis results
+            // -------------------------------------------------
+
+            if (
+                Array.isArray(
+                    data.analyses
+                )
+            ) {
+
+                updateSignalMetrics(
+                    data.analyses
+                );
+
+            }
+
+        } catch (error) {
+
+            statusElement.textContent =
+                "Scanner unavailable.";
+
+            candidatesElement.innerHTML = `
+                <div class="empty">
+                    ${error.message}
+                </div>
+            `;
+
+        }
+
+    }
+
+
+    // =====================================================
+    // SIGNALS
+    // =====================================================
+
+    async function loadSignals() {
+
+        const container =
+            document.getElementById(
+                "signals-list"
+            );
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API}/signals?limit=30`
+                );
+
+            const data =
+                await response.json();
+
+
+            if (
+                !response.ok
+                || !data.success
+            ) {
+
+                throw new Error(
+                    "Unable to load signals."
+                );
+
+            }
+
+
+            const signals =
+                Array.isArray(
+                    data.signals
+                )
+                    ? data.signals
+                    : [];
+
+
+            updateSignalMetrics(
+                signals
+            );
+
+
+            document.getElementById(
+                "signals-updated"
+            ).textContent =
+                new Date().toLocaleTimeString();
+
+
+            if (
+                signals.length === 0
+            ) {
+
+                container.innerHTML = `
+                    <div class="empty">
+                        No signals available yet.
+                    </div>
+                `;
+
+                return;
+
+            }
+
+
+            container.innerHTML =
+                signals.map(
+                    signal => {
+
+                        const symbol =
+                            signal.symbol
+                            || "UNKNOWN";
+
+                        const direction =
+                            String(
+                                signal.direction
+                                || "NEUTRAL"
+                            ).toUpperCase();
+
+                        const confidence =
+                            num(
+                                signal.confidence
+                            );
+
+                        const status =
+                            signal.signal_status
+                            || (
+                                signal.publishable
+                                ? "PUBLISHABLE"
+                                : "NO_TRADE"
+                            );
+
+                        return `
+                            <article
+                                class="signal"
+                            >
+
+                                <div>
+
+                                    <div
+                                        class="signal-symbol"
+                                    >
+                                        ${symbol}
+                                    </div>
+
+                                    <div
+                                        class="signal-small"
+                                    >
+                                        ${status}
+                                    </div>
+
+                                </div>
+
+
+                                <div
+                                    class="${directionClass(
+                                        direction
+                                    )}"
+                                >
+                                    ${direction}
+                                </div>
+
+
+                                <div
+                                    class="confidence"
+                                >
+                                    ${confidence.toFixed(
+                                        2
+                                    )}%
+                                </div>
+
+
+                                <div>
+
+                                    <div
+                                        class="signal-small"
+                                    >
+                                        Entry
+                                    </div>
+
+                                    <div>
+                                        ${fmt(
+                                            signal.entry,
+                                            6
+                                        )}
+                                    </div>
+
+                                </div>
+
+
+                                <div>
+
+                                    <div
+                                        class="signal-small"
+                                    >
+                                        Risk / Reward
+                                    </div>
+
+                                    <div>
+                                        ${fmt(
+                                            signal.risk_reward,
+                                            2
+                                        )}R
+                                    </div>
+
+                                </div>
+
+                            </article>
+                        `;
+
+                    }
+                )
+                .join("");
+
+        } catch (error) {
+
+            container.innerHTML = `
+                <div class="empty">
+                    ${error.message}
+                </div>
+            `;
+
+        }
+
+    }
+
+
+    // =====================================================
+    // SIGNAL METRICS
+    // =====================================================
+
+    function updateSignalMetrics(
+        signals
+    ) {
+
+        if (
+            !Array.isArray(
+                signals
+            )
+        ) {
+            return;
+        }
+
+        const metric90 =
+            signals.filter(
+                signal =>
+                    num(
+                        signal.confidence
+                    ) >= 90
+            ).length;
+
+        const metric95 =
+            signals.filter(
+                signal =>
+                    num(
+                        signal.confidence
+                    ) >= 95
+            ).length;
+
+        const metric99 =
+            signals.filter(
+                signal =>
+                    num(
+                        signal.confidence
+                    ) >= 99
+            ).length;
+
+        const publishable =
+            signals.filter(
+                signal =>
+                    signal.publishable
+                    === true
+            ).length;
+
+
+        document.getElementById(
+            "metric-90"
+        ).textContent =
+            metric90;
+
+        document.getElementById(
+            "metric-95"
+        ).textContent =
+            metric95;
+
+        document.getElementById(
+            "metric-99"
+        ).textContent =
+            metric99;
+
+        document.getElementById(
+            "metric-publishable"
+        ).textContent =
+            publishable;
+
+    }
+
+
+    // =====================================================
+    // ANALYZE SELECTED COIN
+    // =====================================================
+
+    async function analyzeCoin() {
+
+        const symbol =
+            document.getElementById(
+                "symbol-input"
+            ).value
+                .trim();
+
+        const market =
+            document.getElementById(
+                "market-select"
+            ).value;
+
+        const candleLimit =
+            document.getElementById(
+                "timeframe-select"
+            ).value;
+
+        const container =
+            document.getElementById(
+                "analysis-container"
+            );
+
+
+        if (!symbol) {
+
+            container.innerHTML = `
+                <div class="empty">
+                    Enter a coin symbol first.
+                </div>
+            `;
+
+            return;
+
+        }
+
+
+        container.innerHTML = `
+            <div class="empty">
+                Running real ${market}
+                analysis for ${symbol.toUpperCase()}...
+            </div>
+        `;
+
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API}/analyze`
+                    + `?symbol=${encodeURIComponent(
+                        symbol
+                    )}`
+                    + `&market=${encodeURIComponent(
+                        market
+                    )}`
+                    + `&candle_limit=${candleLimit}`
+                );
+
+
+            const data =
+                await response.json();
+
+
+            if (
+                !response.ok
+                || !data.success
+            ) {
+
+                throw new Error(
+                    data.detail
+                    || data.error
+                    || "Analysis failed."
+                );
+
+            }
+
+
+            lastAnalysis =
+                data;
+
+            renderAnalysis(
+                data
+            );
+
+
+        } catch (error) {
+
+            container.innerHTML = `
+                <div class="empty">
+                    ${error.message}
+                </div>
+            `;
+
+        }
+
+    }
+
+
+    // =====================================================
+    // RENDER ANALYSIS
+    // =====================================================
+
+    function renderAnalysis(
+        data
+    ) {
+
+        const container =
+            document.getElementById(
+                "analysis-container"
+            );
+
+
+        const direction =
+            String(
+                data.direction
+                || "NEUTRAL"
+            ).toUpperCase();
+
+
+        const confidence =
+            num(
+                data.confidence
+            );
+
+
+        const mtf =
+            data.multi_timeframe
+            || {};
+
+
+        const timeframes =
+            data.timeframes
+            || {};
+
+
+        const reasons =
+            Array.isArray(
+                data.reasons
+            )
+                ? data.reasons
+                : [];
+
+
+        const failures =
+            Array.isArray(
+                data.critical_failures
+            )
+                ? data.critical_failures
+                : [];
+
+
+        const analysis24 =
+            data["24_point_analysis"]
+            || {};
+
+
+        const confirmed =
+            num(
+                analysis24.market_confirmation_count
+            );
+
+
+        container.innerHTML = `
+
+            <!-- PRIMARY ANALYSIS -->
+
+            <div class="panel">
+
+                <div
+                    class="analysis-header"
+                >
+
+                    <div>
+
+                        <div class="signal-small">
+                            ${data.symbol}
+                            ·
+                            ${String(
+                                data.market
+                                || ""
+                            ).toUpperCase()}
+                        </div>
+
+                        <div
+                            class="big-signal
+                            ${directionClass(
+                                direction
+                            )}"
+                        >
+                            ${direction}
+                        </div>
+
+                        <div class="signal-small">
+                            ${
+                                data.signal_status
+                                || "NO_TRADE"
+                            }
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        class="confidence-ring"
+                        style="
+                            --confidence:
+                            ${confidence}%;
+                        "
+                    >
+
+                        <span>
+                            ${confidence.toFixed(
+                                1
+                            )}%
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="levels">
+
+                    <div class="level">
+
+                        <label>
+                            ENTRY
+                        </label>
+
+                        <strong>
+                            ${fmt(
+                                data.entry,
+                                6
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="level">
+
+                        <label>
+                            STOP LOSS
+                        </label>
+
+                        <strong>
+                            ${fmt(
+                                data.stop_loss,
+                                6
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="level">
+
+                        <label>
+                            TP1
+                        </label>
+
+                        <strong>
+                            ${fmt(
+                                data.tp1,
+                                6
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="level">
+
+                        <label>
+                            TP2
+                        </label>
+
+                        <strong>
+                            ${fmt(
+                                data.tp2,
+                                6
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="level">
+
+                        <label>
+                            TP3
+                        </label>
+
+                        <strong>
+                            ${fmt(
+                                data.tp3,
+                                6
+                            )}
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="mtf-grid">
+
+                    ${[
+                        "15m",
+                        "1h",
+                        "4h"
+                    ]
+                    .map(
+                        timeframe => {
+
+                            const item =
+                                timeframes[
+                                    timeframe
+                                ]
+                                || {};
+
+                            const tfDirection =
+                                String(
+                                    item.direction
+                                    || "NEUTRAL"
+                                ).toUpperCase();
+
+                            return `
+                                <div class="mtf">
+
+                                    <span>
+                                        ${timeframe}
+                                    </span>
+
+                                    <strong
+                                        class="${directionClass(
+                                            tfDirection
+                                        )}"
+                                    >
+                                        ${tfDirection}
+                                    </strong>
+
+                                    <div
+                                        class="signal-small"
+                                    >
+                                        ${num(
+                                            item.confidence
+                                        ).toFixed(
+                                            1
+                                        )}%
+                                    </div>
+
+                                </div>
+                            `;
+
+                        }
+                    )
+                    .join("")}
+
+                </div>
+
+            </div>
+
+
+            <!-- CONFIRMATIONS -->
+
+            <div class="panel">
+
+                <h4>
+                    Analysis Summary
+                </h4>
+
+
+                <p>
+                    MTF Status:
+                    <strong>
+                        ${
+                            mtf.status
+                            || "UNKNOWN"
+                        }
+                    </strong>
+                </p>
+
+
+                <p>
+                    Agreement:
+                    <strong>
+                        ${
+                            (
+                                num(
+                                    mtf.agreement_ratio
+                                )
+                                * 100
+                            ).toFixed(
+                                0
+                            )
+                        }%
+                    </strong>
+                </p>
+
+
+                <p>
+                    Risk / Reward:
+                    <strong>
+                        ${fmt(
+                            data.risk_reward,
+                            2
+                        )}R
+                    </strong>
+                </p>
+
+
+                <p>
+                    24-Point Market Confirmations:
+                    <strong>
+                        ${confirmed}/20
+                    </strong>
+                </p>
+
+
+                <p>
+                    Publishable:
+                    <strong>
+                        ${
+                            data.publishable
+                            ? "YES"
+                            : "NO"
+                        }
+                    </strong>
+                </p>
+
+
+                <h4>
+                    Reasons
+                </h4>
+
+
+                ${
+                    reasons.length
+                    ? `
+                        <ul
+                            class="reason-list"
+                        >
+                            ${
+                                reasons
+                                .slice(
+                                    0,
+                                    12
+                                )
+                                .map(
+                                    reason =>
+                                        `<li>${reason}</li>`
+                                )
+                                .join("")
+                            }
+                        </ul>
+                    `
+                    : `
+                        <div class="empty">
+                            No confirmation reasons available.
+                        </div>
+                    `
+                }
+
+
+                ${
+                    failures.length
+                    ? `
+                        <h4>
+                            Critical Failures
+                        </h4>
+
+                        <ul
+                            class="reason-list"
+                            style="
+                                color: var(--red);
+                            "
+                        >
+                            ${
+                                failures
+                                .map(
+                                    failure =>
+                                        `<li>${failure}</li>`
+                                )
+                                .join("")
+                            }
+                        </ul>
+                    `
+                    : ""
+                }
+
+            </div>
+
+        `;
+
+    }
+
+
+    // =====================================================
+    // PAPER STATUS
+    // =====================================================
+
+    async function loadPaperStatus() {
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API}/trade/status`
+                );
+
+            const data =
+                await response.json();
+
+
+            if (
+                !response.ok
+                || !data.success
+            ) {
+                return;
+            }
+
+
+            const engine =
+                data.engine
+                || {};
+
+
+            const open =
+                Array.isArray(
+                    engine.open_positions
+                )
+                    ? engine.open_positions.length
+                    : num(
+                        engine.open_positions,
+                        0
+                    );
+
+
+            document.getElementById(
+                "paper-open"
+            ).textContent =
+                open;
+
+        } catch (error) {
+
+            // Keep dashboard usable
+            // even if paper engine is unavailable.
+
+        }
+
+    }
+
+
+    // =====================================================
+    // NAVIGATION
+    // =====================================================
+
+    document
+        .querySelectorAll(
+            ".nav button"
+        )
+        .forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    () => {
+
+                        document
+                            .querySelectorAll(
+                                ".nav button"
+                            )
+                            .forEach(
+                                item =>
+                                    item.classList.remove(
+                                        "active"
+                                    )
+                            );
+
+                        button.classList.add(
+                            "active"
+                        );
+
+                        const section =
+                            button.dataset.section;
+
+                        document
+                            .getElementById(
+                                "analysis-container"
+                            )
+                            .scrollIntoView({
+                                behavior:
+                                    "smooth",
+                            });
+
+                        if (
+                            section ===
+                            "overview"
+                        ) {
+
+                            window.scrollTo({
+                                top: 0,
+                                behavior:
+                                    "smooth",
+                            });
+
+                        }
+
+                    }
+                );
+
+            }
+        );
+
+
+    // =====================================================
+    // EVENTS
+    // =====================================================
+
+    document
+        .getElementById(
+            "analyze-button"
+        )
+        .addEventListener(
+            "click",
+            analyzeCoin
+        );
+
+
+    document
+        .getElementById(
+            "symbol-input"
+        )
+        .addEventListener(
+            "keydown",
+            event => {
+
+                if (
+                    event.key
+                    === "Enter"
+                ) {
+
+                    analyzeCoin();
+
+                }
+
+            }
+        );
+
+
+    document
+        .getElementById(
+            "market-select"
+        )
+        .addEventListener(
+            "change",
+            () => {
+
+                loadScanner();
+                loadSignals();
+
+            }
+        );
+
+
+    // =====================================================
+    // INITIAL LOAD
+    // =====================================================
+
+    await loadHealth();
+    await loadScanner();
+    await loadSignals();
+    await loadPaperStatus();
+
+
+    // Refresh scanner periodically.
+    setInterval(
+        loadScanner,
+        60000
+    );
+
+    setInterval(
+        loadSignals,
+        30000
+    );
+
+    setInterval(
+        loadHealth,
+        30000
+    );
+
+</script>
 
 </body>
 
