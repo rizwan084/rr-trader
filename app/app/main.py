@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -72,7 +73,7 @@ def _signal_sort_key(
 
 AUTO_SCAN_INTERVAL_SECONDS = 60
 AUTO_UNIVERSE_SIZE = 150
-AUTO_DEEP_ANALYSIS_SIZE = 5
+AUTO_DEEP_ANALYSIS_SIZE = 1
 
 _auto_scanner_task: Optional[
     asyncio.Task
@@ -368,7 +369,7 @@ async def _auto_scan_cycle() -> None:
                     await _auto_scanner.scan_symbol(
                         symbol=symbol,
                         market="futures",
-                        limit=90,
+                        limit=60,
                     )
                 )
 
@@ -465,6 +466,14 @@ async def _auto_scan_cycle() -> None:
             timezone.utc
         ).isoformat()
 
+        # Release temporary deep-analysis objects
+        # before the next 60-second cycle.
+        del signals
+        del deep_candidates
+        del universe
+
+        gc.collect()
+
     except Exception as exc:
 
         _auto_state[
@@ -480,6 +489,8 @@ async def _auto_scan_cycle() -> None:
         _auto_state[
             "next_scan_in_seconds"
         ] = AUTO_SCAN_INTERVAL_SECONDS
+
+        gc.collect()
 
 
 async def _auto_scanner_loop() -> None:
