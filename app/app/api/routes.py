@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.services.scanner import MarketScanner
+from ..services.scanner import MarketScanner
 
 
 router = APIRouter()
