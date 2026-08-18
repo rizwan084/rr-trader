@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from app.app.api.routes import router as api_router
+from app.app.api.trade_routes import router as trade_api_router
 from app.app.clients.binance import BinanceClient
 from app.app.services.scanner import MarketScanner
 
@@ -974,6 +975,14 @@ app.include_router(
     prefix="/api",
     tags=[
         "RR Trader API"
+    ],
+)
+
+app.include_router(
+    trade_api_router,
+    prefix="/api",
+    tags=[
+        "Trade Engine",
     ],
 )
 
