@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader — Charts
+    </title>
+
+</head>
+
+
+<body>
+
+    <main>
+
+        <header>
+
+            <h1>
+                RR Trader Charts
+            </h1>
+
+            <p>
+                Professional multi-timeframe market charting.
+            </p>
+
+        </header>
+
+
+        <section>
+
+            <h2>
+                Chart Controls
+            </h2>
+
+
+            <label for="market">
+                Market
+            </label>
+
+            <select id="market">
+
+                <option value="futures">
+                    Binance Futures
+                </option>
+
+                <option value="spot">
+                    Binance Spot
+                </option>
+
+            </select>
+
+
+            <br><br>
+
+
+            <label for="symbol">
+                Symbol
+            </label>
+
+            <input
+                id="symbol"
+                type="text"
+                value="BTCUSDT"
+                placeholder="BTCUSDT"
+            >
+
+
+            <br><br>
+
+
+            <label for="timeframe">
+                Timeframe
+            </label>
+
+            <select id="timeframe">
+
+                <option value="15m">
+                    15m
+                </option>
+
+                <option value="1h">
+                    1H
+                </option>
+
+                <option value="4h">
+                    4H
+                </option>
+
+            </select>
+
+
+            <br><br>
+
+
+            <button
+                type="button"
+                id="load-chart"
+            >
+                Load Chart
+            </button>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Trading Chart
+            </h2>
+
+
+            <div
+                id="chart-container"
+                style="
+                    width:100%;
+                    min-height:600px;
+                    border:1px solid #ccc;
+                    padding:20px;
+                "
+            >
+
+                Chart will appear here.
+
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Timeframe Information
+            </h2>
+
+
+            <div>
+
+                <strong>
+                    15m
+                </strong>
+
+                <p>
+                    Entry timing, momentum and local market structure.
+                </p>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    1H
+                </strong>
+
+                <p>
+                    Primary trend confirmation.
+                </p>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    4H
+                </strong>
+
+                <p>
+                    Higher-timeframe market regime.
+                </p>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <script>
+
+        // =====================================================
+        // LOAD CHART
+        // =====================================================
+
+        function loadChart() {
+
+            const symbol =
+                String(
+                    document.getElementById(
+                        "symbol"
+                    ).value
+                )
+                .trim()
+                .toUpperCase()
+                .replace(
+                    /[^A-Z0-9]/g,
+                    ""
+                );
+
+
+            const market =
+                document.getElementById(
+                    "market"
+                ).value;
+
+
+            const timeframe =
+                document.getElementById(
+                    "timeframe"
+                ).value;
+
+
+            const container =
+                document.getElementById(
+                    "chart-container"
+                );
+
+
+            if (!symbol) {
+
+                container.textContent =
+                    "Please enter a symbol.";
+
+                return;
+
+            }
+
+
+            let interval = "15";
+
+
+            if (
+                timeframe === "1h"
+            ) {
+
+                interval = "60";
+
+            }
+
+
+            if (
+                timeframe === "4h"
+            ) {
+
+                interval = "240";
+
+            }
+
+
+            // -------------------------------------------------
+            // TradingView widget shell
+            // -------------------------------------------------
+
+            container.innerHTML = `
+
+                <div
+                    class="tradingview-widget-container"
+                    style="
+                        height:600px;
+                        width:100%;
+                    "
+                >
+
+                    <div
+                        class="tradingview-widget-container__widget"
+                        style="
+                            height:100%;
+                            width:100%;
+                        "
+                    >
+                    </div>
+
+                </div>
+
+            `;
+
+
+            const script =
+                document.createElement(
+                    "script"
+                );
+
+
+            script.type =
+                "text/javascript";
+
+
+            script.src =
+                "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+
+
+            script.async = true;
+
+
+            script.textContent =
+                JSON.stringify({
+
+                    autosize: true,
+
+                    symbol:
+                        "BINANCE:"
+                        + symbol,
+
+                    interval:
+                        interval,
+
+                    timezone:
+                        "Etc/UTC",
+
+                    theme:
+                        "dark",
+
+                    style:
+                        "1",
+
+                    locale:
+                        "en",
+
+                    allow_symbol_change:
+                        true,
+
+                    calendar:
+                        false,
+
+                    support_host:
+                        "https://www.tradingview.com"
+
+                });
+
+
+            container
+                .querySelector(
+                    ".tradingview-widget-container__widget"
+                )
+                .appendChild(
+                    script
+                );
+
+        }
+
+
+        // =====================================================
+        // LOAD CHART BUTTON
+        // =====================================================
+
+        document
+            .getElementById(
+                "load-chart"
+            )
+            .addEventListener(
+                "click",
+                loadChart
+            );
+
+
+        // =====================================================
+        // INITIAL CHART
+        // =====================================================
+
+        loadChart();
+
+    </script>
+
+</body>
+
+</html>
