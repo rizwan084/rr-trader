@@ -2199,7 +2199,7 @@ DASHBOARD_HTML = r"""
 
             <input
                 id="coinSearch"
-                placeholder="Search Futures coin — e.g. BTC, BANK, ZDC"
+                placeholder="Search Futures coin â e.g. BTC, BANK, ZDC"
                 autocomplete="off"
                 style="width:100%;"
             >
@@ -2494,7 +2494,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            5m → 4h
+            5m â 4h
         </span>
 
     </div>
@@ -2524,7 +2524,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            Paper mode • no live orders
+            Paper mode â¢ no live orders
         </span>
 
     </div>
@@ -2552,7 +2552,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            Draw • edit • analyze
+            Draw â¢ edit â¢ analyze
         </span>
 
     </div>
@@ -2629,27 +2629,27 @@ DASHBOARD_HTML = r"""
 
             <div class="chart-level">
                 <div class="chart-level-label">ENTRY</div>
-                <div class="chart-level-value" id="chartEntry">—</div>
+                <div class="chart-level-value" id="chartEntry">â</div>
             </div>
 
             <div class="chart-level">
                 <div class="chart-level-label">STOP LOSS</div>
-                <div class="chart-level-value" id="chartSL">—</div>
+                <div class="chart-level-value" id="chartSL">â</div>
             </div>
 
             <div class="chart-level">
                 <div class="chart-level-label">TP1</div>
-                <div class="chart-level-value" id="chartTP1">—</div>
+                <div class="chart-level-value" id="chartTP1">â</div>
             </div>
 
             <div class="chart-level">
                 <div class="chart-level-label">TP2</div>
-                <div class="chart-level-value" id="chartTP2">—</div>
+                <div class="chart-level-value" id="chartTP2">â</div>
             </div>
 
             <div class="chart-level">
                 <div class="chart-level-label">TP3</div>
-                <div class="chart-level-value" id="chartTP3">—</div>
+                <div class="chart-level-value" id="chartTP3">â</div>
             </div>
 
         </div>
@@ -2690,22 +2690,22 @@ DASHBOARD_HTML = r"""
 
             <div class="trade-stat">
                 <div class="trade-stat-label">Mode</div>
-                <div class="trade-stat-value" id="paperMode">—</div>
+                <div class="trade-stat-value" id="paperMode">â</div>
             </div>
 
             <div class="trade-stat">
                 <div class="trade-stat-label">Balance</div>
-                <div class="trade-stat-value" id="paperBalance">—</div>
+                <div class="trade-stat-value" id="paperBalance">â</div>
             </div>
 
             <div class="trade-stat">
                 <div class="trade-stat-label">Open Positions</div>
-                <div class="trade-stat-value" id="paperPositions">—</div>
+                <div class="trade-stat-value" id="paperPositions">â</div>
             </div>
 
             <div class="trade-stat">
                 <div class="trade-stat-label">Daily PnL</div>
-                <div class="trade-stat-value" id="paperPnl">—</div>
+                <div class="trade-stat-value" id="paperPnl">â</div>
             </div>
 
         </div>
@@ -2722,7 +2722,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            Generate • Edit • Copy
+            Generate â¢ Edit â¢ Copy
         </span>
 
     </div>
@@ -5325,5 +5325,4 @@ window.addEventListener(
 async def dashboard():
 
     return HTMLResponse(
-        content=DASHBOARD_HTML
-    )
+        content
