@@ -19,7 +19,6 @@
         RR Trader — Live Crypto Trading Scanner
     </title>
 
-
     <style>
 
         /* =====================================================
@@ -48,14 +47,6 @@
                     31,
                     51,
                     0.86
-                );
-
-            --panel-3:
-                rgba(
-                    10,
-                    17,
-                    30,
-                    0.90
                 );
 
             --border:
@@ -187,19 +178,8 @@
         }
 
 
-        a {
-
-            color:
-                inherit;
-
-            text-decoration:
-                none;
-
-        }
-
-
         /* =====================================================
-           PREMIUM ANIMATED BACKGROUND
+           PREMIUM BACKGROUND
         ===================================================== */
 
         .bg-effects {
@@ -506,24 +486,14 @@
 
 
         .bg-line-1 {
-
-            left:
-                20%;
-
-            animation-delay:
-                1s;
-
+            left: 20%;
+            animation-delay: 1s;
         }
 
 
         .bg-line-2 {
-
-            right:
-                28%;
-
-            animation-delay:
-                5s;
-
+            right: 28%;
+            animation-delay: 5s;
         }
 
 
@@ -542,17 +512,11 @@
             }
 
             14% {
-
-                opacity:
-                    0.72;
-
+                opacity: 0.72;
             }
 
             72% {
-
-                opacity:
-                    0.25;
-
+                opacity: 0.25;
             }
 
             100% {
@@ -612,28 +576,24 @@
         @keyframes scanMove {
 
             0% {
-
                 transform:
                     translateY(
                         -25vh
                     );
-
             }
 
             100% {
-
                 transform:
                     translateY(
                         135vh
                     );
-
             }
 
         }
 
 
         /* =====================================================
-           APP LAYER
+           APP
         ===================================================== */
 
         .app {
@@ -694,14 +654,6 @@
 
             backdrop-filter:
                 blur(18px);
-
-        }
-
-
-        .brand {
-
-            min-width:
-                0;
 
         }
 
@@ -973,10 +925,7 @@
                 grid;
 
             grid-template-columns:
-                minmax(
-                    220px,
-                    1fr
-                )
+                minmax(220px, 1fr)
                 190px
                 160px
                 150px;
@@ -1022,14 +971,6 @@
 
             outline:
                 none;
-
-        }
-
-
-        input::placeholder {
-
-            color:
-                var(--muted-2);
 
         }
 
@@ -1086,31 +1027,6 @@
                     109,
                     255,
                     0.18
-                );
-
-            transition:
-                transform
-                0.18s ease,
-                box-shadow
-                0.18s ease;
-
-        }
-
-
-        button.primary:hover {
-
-            transform:
-                translateY(
-                    -1px
-                );
-
-            box-shadow:
-                0 14px 30px
-                rgba(
-                    45,
-                    109,
-                    255,
-                    0.25
                 );
 
         }
@@ -1187,9 +1103,6 @@
             font-size:
                 24px;
 
-            letter-spacing:
-                -0.02em;
-
         }
 
 
@@ -1198,14 +1111,8 @@
             margin:
                 0;
 
-            max-width:
-                850px;
-
             color:
                 var(--muted);
-
-            line-height:
-                1.5;
 
         }
 
@@ -1214,9 +1121,6 @@
 
             text-align:
                 right;
-
-            white-space:
-                nowrap;
 
             color:
                 var(--muted);
@@ -1274,7 +1178,7 @@
         .metric {
 
             min-height:
-                108px;
+                105px;
 
             padding:
                 17px;
@@ -1303,15 +1207,6 @@
                     )
                 );
 
-            box-shadow:
-                0 14px 45px
-                rgba(
-                    0,
-                    0,
-                    0,
-                    0.14
-                );
-
             backdrop-filter:
                 blur(10px);
 
@@ -1330,7 +1225,7 @@
                 uppercase;
 
             letter-spacing:
-                0.09em;
+                .09em;
 
         }
 
@@ -1342,9 +1237,6 @@
 
             font-size:
                 28px;
-
-            line-height:
-                1;
 
             font-weight:
                 900;
@@ -1444,39 +1336,11 @@
                     14,
                     23,
                     39,
-                    0.82
-                );
-
-            box-shadow:
-                0 12px 35px
-                rgba(
-                    0,
-                    0,
-                    0,
-                    0.12
+                    .82
                 );
 
             backdrop-filter:
                 blur(10px);
-
-            transition:
-                transform
-                0.18s ease,
-                border-color
-                0.18s ease;
-
-        }
-
-
-        .candidate:hover {
-
-            transform:
-                translateY(
-                    -2px
-                );
-
-            border-color:
-                var(--border-strong);
 
         }
 
@@ -1491,9 +1355,6 @@
 
             justify-content:
                 space-between;
-
-            gap:
-                10px;
 
             margin-bottom:
                 12px;
@@ -1528,23 +1389,11 @@
                     245,
                     201,
                     93,
-                    0.08
-                );
-
-            border:
-                1px solid
-                rgba(
-                    245,
-                    201,
-                    93,
-                    0.10
+                    .08
                 );
 
             font-size:
                 10px;
-
-            font-weight:
-                700;
 
         }
 
@@ -1554,14 +1403,8 @@
             display:
                 flex;
 
-            align-items:
-                center;
-
             justify-content:
                 space-between;
-
-            gap:
-                12px;
 
             margin-top:
                 7px;
@@ -1581,7 +1424,7 @@
 
 
         /* =====================================================
-           SIGNAL LIST
+           SIGNALS
         ===================================================== */
 
         .signal-list {
@@ -1602,16 +1445,16 @@
 
             grid-template-columns:
                 1.25fr
-                0.65fr
-                0.75fr
-                0.9fr
-                0.9fr;
-
-            align-items:
-                center;
+                .65fr
+                .75fr
+                .9fr
+                .9fr;
 
             gap:
                 12px;
+
+            align-items:
+                center;
 
             padding:
                 14px 16px;
@@ -1628,11 +1471,8 @@
                     13,
                     21,
                     36,
-                    0.84
+                    .84
                 );
-
-            backdrop-filter:
-                blur(8px);
 
         }
 
@@ -1696,8 +1536,7 @@
                 grid;
 
             grid-template-columns:
-                1.4fr
-                1fr;
+                1.4fr 1fr;
 
             gap:
                 11px;
@@ -1722,16 +1561,7 @@
                     14,
                     23,
                     39,
-                    0.86
-                );
-
-            box-shadow:
-                0 14px 45px
-                rgba(
-                    0,
-                    0,
-                    0,
-                    0.13
+                    .86
                 );
 
             backdrop-filter:
@@ -1779,9 +1609,6 @@
             font-weight:
                 950;
 
-            letter-spacing:
-                -0.03em;
-
         }
 
 
@@ -1813,18 +1640,8 @@
                         255,
                         255,
                         255,
-                        0.06
-                    )
-                    0
-                );
-
-            box-shadow:
-                0 0 35px
-                rgba(
-                    35,
-                    149,
-                    255,
-                    0.16
+                        .06
+                    ) 0
                 );
 
         }
@@ -1907,7 +1724,7 @@
                     7,
                     13,
                     23,
-                    0.72
+                    .72
                 );
 
         }
@@ -1926,9 +1743,6 @@
 
             font-size:
                 9px;
-
-            letter-spacing:
-                0.07em;
 
         }
 
@@ -1981,7 +1795,7 @@
                     7,
                     13,
                     23,
-                    0.72
+                    .72
                 );
 
         }
@@ -2059,7 +1873,7 @@
                     8,
                     14,
                     24,
-                    0.70
+                    .70
                 );
 
         }
@@ -2101,7 +1915,6 @@
 
             }
 
-
             .metrics {
 
                 grid-template-columns:
@@ -2112,7 +1925,6 @@
 
             }
 
-
             .candidates {
 
                 grid-template-columns:
@@ -2122,7 +1934,6 @@
                     );
 
             }
-
 
             .analysis-grid {
 
@@ -2145,14 +1956,12 @@
 
             }
 
-
             .nav {
 
                 padding:
                     9px 14px;
 
             }
-
 
             .container {
 
@@ -2166,14 +1975,12 @@
 
             }
 
-
             .toolbar {
 
                 grid-template-columns:
                     1fr;
 
             }
-
 
             .hero {
 
@@ -2185,14 +1992,12 @@
 
             }
 
-
             .scan-meta {
 
                 text-align:
                     left;
 
             }
-
 
             .metrics,
             .candidates {
@@ -2202,7 +2007,6 @@
 
             }
 
-
             .signal {
 
                 grid-template-columns:
@@ -2210,23 +2014,11 @@
 
             }
 
-
             .levels {
 
                 grid-template-columns:
                     repeat(
                         2,
-                        1fr
-                    );
-
-            }
-
-
-            .mtf-grid {
-
-                grid-template-columns:
-                    repeat(
-                        3,
                         1fr
                     );
 
@@ -2301,12 +2093,15 @@
 
         <div
             class="system-status"
-            id="system-status"
         >
 
-            <span class="status-dot"></span>
+            <span
+                class="status-dot"
+            ></span>
 
-            <span id="backend-status">
+            <span
+                id="backend-status"
+            >
                 Backend checking...
             </span>
 
@@ -2319,53 +2114,71 @@
          NAVIGATION
     ====================================================== -->
 
-    <nav class="nav">
+    <nav
+        class="nav"
+        id="main-navigation"
+    >
 
         <button
             class="active"
             data-action="overview"
+            type="button"
         >
             Overview
         </button>
 
+
         <button
             data-action="opportunities"
+            type="button"
         >
             Trade Opportunities
         </button>
 
+
         <button
             data-action="signals"
+            type="button"
         >
             Signals
         </button>
 
+
         <button
             data-action="analysis"
+            type="button"
         >
             Analysis
         </button>
 
+
         <button
             data-action="paper"
+            type="button"
         >
             Paper Trading
         </button>
 
+
         <button
             data-action="charts"
+            type="button"
         >
             Charts
         </button>
 
+
         <button
             data-action="ai"
+            type="button"
         >
             AI Assistant
         </button>
 
+
         <button
             data-action="settings"
+            type="button"
         >
             Settings
         </button>
@@ -2377,14 +2190,19 @@
          MAIN
     ====================================================== -->
 
-    <main class="container">
+    <main
+        class="container"
+        id="overview-section"
+    >
 
 
         <!-- =================================================
              TOOLBAR
         ================================================== -->
 
-        <section class="toolbar">
+        <section
+            class="toolbar"
+        >
 
             <input
                 id="symbol-input"
@@ -2395,30 +2213,44 @@
             >
 
 
-            <select id="market-select">
+            <select
+                id="market-select"
+            >
 
-                <option value="futures">
+                <option
+                    value="futures"
+                >
                     Binance Futures
                 </option>
 
-                <option value="spot">
+                <option
+                    value="spot"
+                >
                     Binance Spot
                 </option>
 
             </select>
 
 
-            <select id="candle-limit">
+            <select
+                id="candle-limit"
+            >
 
-                <option value="200">
+                <option
+                    value="200"
+                >
                     200 Candles
                 </option>
 
-                <option value="120">
+                <option
+                    value="120"
+                >
                     120 Candles
                 </option>
 
-                <option value="80">
+                <option
+                    value="80"
+                >
                     80 Candles
                 </option>
 
@@ -2428,6 +2260,7 @@
             <button
                 class="primary"
                 id="analyze-button"
+                type="button"
             >
                 Analyze Coin
             </button>
@@ -2439,7 +2272,9 @@
              HERO
         ================================================== -->
 
-        <section class="hero">
+        <section
+            class="hero"
+        >
 
             <div>
 
@@ -2447,16 +2282,22 @@
                     Live Market Scanner
                 </h2>
 
-                <p id="hero-message">
+                <p
+                    id="hero-message"
+                >
                     Full-market scanner is preparing candidates...
                 </p>
 
             </div>
 
 
-            <div class="scan-meta">
+            <div
+                class="scan-meta"
+            >
 
-                <strong id="scanner-count">
+                <strong
+                    id="scanner-count"
+                >
                     0
                 </strong>
 
@@ -2471,12 +2312,18 @@
              METRICS
         ================================================== -->
 
-        <section class="metrics">
+        <section
+            class="metrics"
+        >
 
 
-            <div class="metric">
+            <div
+                class="metric"
+            >
 
-                <div class="metric-label">
+                <div
+                    class="metric-label"
+                >
                     90%+ Signals
                 </div>
 
@@ -2490,9 +2337,13 @@
             </div>
 
 
-            <div class="metric">
+            <div
+                class="metric"
+            >
 
-                <div class="metric-label">
+                <div
+                    class="metric-label"
+                >
                     95%+ Signals
                 </div>
 
@@ -2506,9 +2357,13 @@
             </div>
 
 
-            <div class="metric">
+            <div
+                class="metric"
+            >
 
-                <div class="metric-label">
+                <div
+                    class="metric-label"
+                >
                     99%+ Signals
                 </div>
 
@@ -2522,9 +2377,13 @@
             </div>
 
 
-            <div class="metric">
+            <div
+                class="metric"
+            >
 
-                <div class="metric-label">
+                <div
+                    class="metric-label"
+                >
                     Publishable
                 </div>
 
@@ -2545,15 +2404,21 @@
              CANDIDATES
         ================================================== -->
 
-        <section class="section">
+        <section
+            class="section"
+        >
 
-            <div class="section-header">
+            <div
+                class="section-header"
+            >
 
                 <h3>
                     Top Market Candidates
                 </h3>
 
-                <span id="candidate-status">
+                <span
+                    id="candidate-status"
+                >
                     Loading...
                 </span>
 
@@ -2565,7 +2430,9 @@
                 id="candidates"
             >
 
-                <div class="empty">
+                <div
+                    class="empty"
+                >
                     Loading market universe...
                 </div>
 
@@ -2578,15 +2445,21 @@
              SIGNALS
         ================================================== -->
 
-        <section class="section">
+        <section
+            class="section"
+        >
 
-            <div class="section-header">
+            <div
+                class="section-header"
+            >
 
                 <h3>
                     High Confidence Signals
                 </h3>
 
-                <span id="signals-updated">
+                <span
+                    id="signals-updated"
+                >
                     —
                 </span>
 
@@ -2598,7 +2471,9 @@
                 id="signals-list"
             >
 
-                <div class="empty">
+                <div
+                    class="empty"
+                >
                     Loading signals...
                 </div>
 
@@ -2611,9 +2486,13 @@
              ANALYSIS
         ================================================== -->
 
-        <section class="section">
+        <section
+            class="section"
+        >
 
-            <div class="section-header">
+            <div
+                class="section-header"
+            >
 
                 <h3>
                     Selected Symbol Analysis
@@ -2631,7 +2510,9 @@
                 class="analysis-grid"
             >
 
-                <div class="empty">
+                <div
+                    class="empty"
+                >
                     Analyze a coin to view the real market analysis.
                 </div>
 
@@ -2644,9 +2525,13 @@
              PAPER TRADING
         ================================================== -->
 
-        <section class="section">
+        <section
+            class="section"
+        >
 
-            <div class="section-header">
+            <div
+                class="section-header"
+            >
 
                 <h3>
                     Paper Trading
@@ -2659,24 +2544,36 @@
             </div>
 
 
-            <div class="metrics">
+            <div
+                class="metrics"
+            >
 
-                <div class="metric">
+                <div
+                    class="metric"
+                >
 
-                    <div class="metric-label">
+                    <div
+                        class="metric-label"
+                    >
                         Trading Mode
                     </div>
 
-                    <div class="metric-value">
+                    <div
+                        class="metric-value"
+                    >
                         PAPER
                     </div>
 
                 </div>
 
 
-                <div class="metric">
+                <div
+                    class="metric"
+                >
 
-                    <div class="metric-label">
+                    <div
+                        class="metric-label"
+                    >
                         Open Positions
                     </div>
 
@@ -2690,26 +2587,38 @@
                 </div>
 
 
-                <div class="metric">
+                <div
+                    class="metric"
+                >
 
-                    <div class="metric-label">
+                    <div
+                        class="metric-label"
+                    >
                         Live Orders
                     </div>
 
-                    <div class="metric-value">
+                    <div
+                        class="metric-value"
+                    >
                         OFF
                     </div>
 
                 </div>
 
 
-                <div class="metric">
+                <div
+                    class="metric"
+                >
 
-                    <div class="metric-label">
+                    <div
+                        class="metric-label"
+                    >
                         Risk Per Trade
                     </div>
 
-                    <div class="metric-value">
+                    <div
+                        class="metric-value"
+                    >
                         1%
                     </div>
 
@@ -2720,7 +2629,9 @@
         </section>
 
 
-        <div class="footer-note">
+        <div
+            class="footer-note"
+        >
             RR Trader · Spot + Futures · 15m / 1H / 4H
         </div>
 
@@ -2731,7 +2642,6 @@
 
 
 <script>
-
 
     // =========================================================
     // CONFIG
@@ -2795,6 +2705,7 @@
             )
             .toUpperCase();
 
+
         if (
             normalized ===
             "LONG"
@@ -2804,6 +2715,7 @@
 
         }
 
+
         if (
             normalized ===
             "SHORT"
@@ -2812,6 +2724,7 @@
             return "direction-short";
 
         }
+
 
         return "";
 
@@ -2824,26 +2737,50 @@
 
         const response =
             await fetch(
-                url
+                url,
+                {
+                    method:
+                        "GET",
+
+                    headers:
+                        {
+                            "Accept":
+                                "application/json"
+                        },
+
+                    cache:
+                        "no-store"
+                }
             );
 
 
-        let data;
+        const contentType =
+            response.headers.get(
+                "content-type"
+            )
+            || "";
 
-        try {
 
-            data =
-                await response.json();
-
-        } catch (
-            error
+        if (
+            !contentType
+                .toLowerCase()
+                .includes(
+                    "application/json"
+                )
         ) {
 
+            const text =
+                await response.text();
+
             throw new Error(
-                "Invalid server response."
+                `Server returned non-JSON response (${response.status}).`
             );
 
         }
+
+
+        const data =
+            await response.json();
 
 
         if (
@@ -2874,6 +2811,7 @@
             document.getElementById(
                 "backend-status"
             );
+
 
         try {
 
@@ -2910,7 +2848,7 @@
 
 
     // =========================================================
-    // LOAD SCANNER
+    // SCANNER
     // =========================================================
 
     async function loadScanner() {
@@ -3165,7 +3103,7 @@
 
 
     // =========================================================
-    // LOAD SIGNALS
+    // SIGNALS
     // =========================================================
 
     async function loadSignals() {
@@ -3301,12 +3239,10 @@
                                     </div>
 
                                     <div>
-                                        ${
-                                            formatNumber(
-                                                signal.entry,
-                                                6
-                                            )
-                                        }
+                                        ${formatNumber(
+                                            signal.entry,
+                                            6
+                                        )}
                                     </div>
 
                                 </div>
@@ -3321,12 +3257,10 @@
                                     </div>
 
                                     <div>
-                                        ${
-                                            formatNumber(
-                                                signal.risk_reward,
-                                                2
-                                            )
-                                        }R
+                                        ${formatNumber(
+                                            signal.risk_reward,
+                                            2
+                                        )}R
                                     </div>
 
                                 </div>
@@ -3435,7 +3369,7 @@
 
 
     // =========================================================
-    // ANALYZE COIN
+    // ANALYZE
     // =========================================================
 
     async function analyzeCoin() {
@@ -3485,8 +3419,7 @@
                 Analyzing
                 ${symbol.toUpperCase()}
                 on
-                ${market}
-               ...
+                ${market}...
             </div>
         `;
 
@@ -3596,17 +3529,6 @@
             );
 
 
-        const rr =
-            toNumber(
-                data.risk_reward
-            );
-
-
-        const publishable =
-            data.publishable
-            === true;
-
-
         container.innerHTML = `
 
             <div class="panel">
@@ -3615,20 +3537,22 @@
 
                     <div>
 
-                        <div
-                            class="signal-small"
-                        >
+                        <div class="signal-small">
+
                             ${
                                 data.symbol
                                 || ""
                             }
+
                             ·
+
                             ${
                                 String(
                                     data.market
                                     || ""
                                 ).toUpperCase()
                             }
+
                         </div>
 
 
@@ -3640,17 +3564,19 @@
                                 )}
                             "
                         >
+
                             ${direction}
+
                         </div>
 
 
-                        <div
-                            class="signal-small"
-                        >
+                        <div class="signal-small">
+
                             ${
                                 data.signal_status
                                 || "NO_TRADE"
                             }
+
                         </div>
 
                     </div>
@@ -3682,7 +3608,6 @@
 
 
                 <div class="levels">
-
 
                     <div class="level">
 
@@ -3763,13 +3688,10 @@
 
                     </div>
 
-
                 </div>
 
 
-                <div
-                    class="mtf-grid"
-                >
+                <div class="mtf-grid">
 
                     ${
                         [
@@ -3796,9 +3718,7 @@
 
                                 return `
 
-                                    <div
-                                        class="mtf"
-                                    >
+                                    <div class="mtf">
 
                                         <span>
                                             ${timeframe}
@@ -3815,6 +3735,7 @@
                                         <div
                                             class="signal-small"
                                         >
+
                                             ${
                                                 toNumber(
                                                     item.confidence
@@ -3822,6 +3743,7 @@
                                                     1
                                                 )
                                             }%
+
                                         </div>
 
                                     </div>
@@ -3838,9 +3760,7 @@
             </div>
 
 
-            <div
-                class="panel"
-            >
+            <div class="panel">
 
                 <h4>
                     Analysis Summary
@@ -3879,7 +3799,9 @@
                     Risk / Reward:
                     <strong>
                         ${
-                            rr.toFixed(
+                            toNumber(
+                                data.risk_reward
+                            ).toFixed(
                                 2
                             )
                         }R
@@ -3899,7 +3821,7 @@
                     Publishable:
                     <strong>
                         ${
-                            publishable
+                            data.publishable
                             ? "YES"
                             : "NO"
                         }
@@ -3908,8 +3830,7 @@
 
 
                 ${
-                    reasons.length
-                    > 0
+                    reasons.length > 0
 
                     ? `
 
@@ -3917,9 +3838,7 @@
                             Why this result?
                         </h4>
 
-                        <ul
-                            class="reason-list"
-                        >
+                        <ul class="reason-list">
 
                             ${
                                 reasons
@@ -3938,19 +3857,13 @@
 
                     `
 
-                    : `
+                    : ""
 
-                        <div class="empty">
-                            No explanation available.
-                        </div>
-
-                    `
                 }
 
 
                 ${
-                    failures.length
-                    > 0
+                    failures.length > 0
 
                     ? `
 
@@ -4043,9 +3956,113 @@
     // NAVIGATION
     // =========================================================
 
+    function navigateToPage(
+        action
+    ) {
+
+        const symbol =
+            document.getElementById(
+                "symbol-input"
+            ).value
+            .trim()
+            .toUpperCase()
+            || "BTC";
+
+
+        const market =
+            document.getElementById(
+                "market-select"
+            ).value
+            || "futures";
+
+
+        const candleLimit =
+            document.getElementById(
+                "candle-limit"
+            ).value
+            || "200";
+
+
+        const routes = {
+
+            opportunities:
+                "/pages/opportunities.html",
+
+            signals:
+                "/pages/signals.html",
+
+            analysis:
+                "/pages/search.html",
+
+            paper:
+                "/pages/paper-trading.html",
+
+            charts:
+                `/pages/charts.html`
+                + `?symbol=${encodeURIComponent(
+                    symbol.endsWith("USDT")
+                        ? symbol
+                        : symbol + "USDT"
+                )}`
+                + `&market=${encodeURIComponent(
+                    market
+                )}`
+                + `&interval=15`,
+
+            ai:
+                "/pages/ai.html",
+
+            settings:
+                "/pages/settings.html"
+
+        };
+
+
+        if (
+            action ===
+            "overview"
+        ) {
+
+            window.scrollTo(
+                {
+                    top:
+                        0,
+
+                    behavior:
+                        "smooth"
+                }
+            );
+
+            return;
+
+        }
+
+
+        const target =
+            routes[
+                action
+            ];
+
+
+        if (
+            !target
+        ) {
+
+            return;
+
+        }
+
+
+        window.location.assign(
+            target
+        );
+
+    }
+
+
     document
         .querySelectorAll(
-            ".nav button"
+            "#main-navigation button"
         )
         .forEach(
             button => {
@@ -4056,7 +4073,7 @@
 
                         document
                             .querySelectorAll(
-                                ".nav button"
+                                "#main-navigation button"
                             )
                             .forEach(
                                 item => {
@@ -4074,54 +4091,8 @@
                         );
 
 
-                        const action =
-                            button.dataset.action;
-
-
-                        const pages = {
-
-                            opportunities:
-                                "/pages/opportunities.html",
-
-                            signals:
-                                "/pages/signals.html",
-
-                            analysis:
-                                "/pages/search.html",
-
-                            paper:
-                                "/pages/paper-trading.html",
-
-                            charts:
-                                "/pages/charts.html",
-
-                            ai:
-                                "/pages/ai.html",
-
-                            settings:
-                                "/pages/settings.html"
-
-                        };
-
-
-                        if (
-                            pages[action]
-                        ) {
-
-                            window.location.href =
-                                pages[action];
-
-                            return;
-
-                        }
-
-
-                        window.scrollTo(
-                            {
-                                top: 0,
-                                behavior:
-                                    "smooth"
-                            }
+                        navigateToPage(
+                            button.dataset.action
                         );
 
                     }
@@ -4154,8 +4125,8 @@
             event => {
 
                 if (
-                    event.key
-                    === "Enter"
+                    event.key ===
+                    "Enter"
                 ) {
 
                     analyzeCoin();
@@ -4175,6 +4146,7 @@
             () => {
 
                 loadScanner();
+
                 loadSignals();
 
             }
@@ -4182,7 +4154,7 @@
 
 
     // =========================================================
-    // INITIAL LOAD
+    // INITIALIZE
     // =========================================================
 
     async function initializeDashboard() {
@@ -4195,7 +4167,6 @@
 
         await loadPaperStatus();
 
-        // Automatically analyze the default BTC.
         await analyzeCoin();
 
     }
@@ -4230,7 +4201,6 @@
         loadScanner,
         60000
     );
-
 
 </script>
 
