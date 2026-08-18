@@ -6,34 +6,28 @@ from typing import Any
 
 @dataclass
 class RiskDecision:
-    """
-    Result of the RR Trader risk engine.
-
-    The risk engine is separate from market-direction
-    analysis. It can veto a trade even when the market
-    score is high.
-    """
-
     allowed: bool
     reason: str
     risk_per_trade_percent: float
     position_size: float
+    risk_amount: float
     portfolio_exposure_percent: float
     failures: list[str]
 
 
 class RiskEngine:
     """
-    RR Trader risk-control engine foundation.
+    RR Trader Risk Engine.
 
     Responsibilities:
     - Position sizing
-    - Account-risk control
+    - Stop validation
+    - Risk / reward validation
     - Portfolio exposure
-    - Maximum open positions
-    - Stop-based risk calculation
+    - Open-position limits
+    - Daily risk controls
 
-    Live execution is disabled during development.
+    Live trading remains disabled.
     """
 
     def __init__(
@@ -41,19 +35,30 @@ class RiskEngine:
         risk_per_trade_percent: float = 1.0,
         max_portfolio_exposure_percent: float = 10.0,
         max_open_positions: int = 5,
+        max_daily_loss_percent: float = 3.0,
     ) -> None:
 
-        self.risk_per_trade_percent = float(
-            risk_per_trade_percent
+        self.risk_per_trade_percent = max(
+            0.0,
+            float(risk_per_trade_percent),
         )
 
-        self.max_portfolio_exposure_percent = float(
-            max_portfolio_exposure_percent
+        self.max_portfolio_exposure_percent = max(
+            0.0,
+            float(max_portfolio_exposure_percent),
         )
 
-        self.max_open_positions = int(
-            max_open_positions
+        self.max_open_positions = max(
+            1,
+            int(max_open_positions),
         )
+
+        self.max_daily_loss_percent = max(
+            0.0,
+            float(max_daily_loss_percent),
+        )
+
+        self.daily_pnl_percent = 0.0
 
     # =====================================================
     # SAFE FLOAT
@@ -75,28 +80,20 @@ class RiskEngine:
             return default
 
     # =====================================================
-    # POSITION SIZE
+    # RISK AMOUNT
     # =====================================================
 
-    def calculate_position_size(
+    def risk_amount(
         self,
-        *,
         account_balance: float,
-        entry: float,
-        stop_loss: float,
         risk_percent: float | None = None,
     ) -> float:
 
-        balance = self._float(
-            account_balance
-        )
-
-        entry_price = self._float(
-            entry
-        )
-
-        stop_price = self._float(
-            stop_loss
+        balance = max(
+            0.0,
+            self._float(
+                account_balance
+            ),
         )
 
         risk_pct = (
@@ -107,43 +104,286 @@ class RiskEngine:
             )
         )
 
-        if balance <= 0:
+        if balance <= 0 or risk_pct <= 0:
             return 0.0
 
-        if entry_price <= 0:
-            return 0.0
+        return round(
+            balance
+            * risk_pct
+            / 100.0,
+            8,
+        )
 
-        if stop_price <= 0:
+    # =====================================================
+    # POSITION SIZE
+    # =====================================================
+
+    def position_size(
+        self,
+        account_balance: float,
+        entry: float,
+        stop_loss: float,
+        risk_percent: float | None = None,
+    ) -> float:
+
+        entry_price = self._float(
+            entry
+        )
+
+        stop_price = self._float(
+            stop_loss
+        )
+
+        if (
+            account_balance <= 0
+            or entry_price <= 0
+            or stop_price <= 0
+        ):
             return 0.0
 
         stop_distance = abs(
-            entry_price - stop_price
+            entry_price
+            - stop_price
         )
 
         if stop_distance <= 0:
             return 0.0
 
-        risk_amount = (
-            balance
-            * risk_pct
-            / 100.0
-        )
-
-        position_size = (
-            risk_amount
-            / stop_distance
+        risk_cash = self.risk_amount(
+            account_balance,
+            risk_percent,
         )
 
         return round(
-            max(
-                0.0,
-                position_size,
-            ),
+            risk_cash
+            / stop_distance,
             8,
         )
 
     # =====================================================
-    # PORTFOLIO CHECK
+    # STOP VALIDATION
+    # =====================================================
+
+    def validate_stop_loss(
+        self,
+        direction: str,
+        entry: float,
+        stop_loss: float,
+    ) -> dict[str, Any]:
+
+        direction = str(
+            direction
+            or ""
+        ).upper()
+
+        entry_price = self._float(
+            entry
+        )
+
+        stop_price = self._float(
+            stop_loss
+        )
+
+        if (
+            entry_price <= 0
+            or stop_price <= 0
+        ):
+
+            return {
+                "valid": False,
+                "reason": "Invalid entry or stop loss.",
+            }
+
+        if direction == "LONG":
+
+            valid = stop_price < entry_price
+
+        elif direction == "SHORT":
+
+            valid = stop_price > entry_price
+
+        else:
+
+            return {
+                "valid": False,
+                "reason": "Direction must be LONG or SHORT.",
+            }
+
+        return {
+            "valid": valid,
+            "reason": (
+                "Stop loss is valid."
+                if valid
+                else "Stop loss is on the wrong side of entry."
+            ),
+        }
+
+    # =====================================================
+    # RISK / REWARD
+    # =====================================================
+
+    def calculate_risk_reward(
+        self,
+        entry: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> float:
+
+        entry_price = self._float(
+            entry
+        )
+
+        stop_price = self._float(
+            stop_loss
+        )
+
+        target_price = self._float(
+            take_profit
+        )
+
+        if (
+            entry_price <= 0
+            or stop_price <= 0
+            or target_price <= 0
+        ):
+            return 0.0
+
+        risk = abs(
+            entry_price
+            - stop_price
+        )
+
+        reward = abs(
+            target_price
+            - entry_price
+        )
+
+        if risk <= 0:
+            return 0.0
+
+        return round(
+            reward / risk,
+            4,
+        )
+
+    # =====================================================
+    # PORTFOLIO EXPOSURE
+    # =====================================================
+
+    def validate_exposure(
+        self,
+        account_balance: float,
+        current_exposure_percent: float,
+        new_exposure_percent: float,
+    ) -> dict[str, Any]:
+
+        _ = account_balance
+
+        current = max(
+            0.0,
+            self._float(
+                current_exposure_percent
+            ),
+        )
+
+        new = max(
+            0.0,
+            self._float(
+                new_exposure_percent
+            ),
+        )
+
+        total = (
+            current
+            + new
+        )
+
+        valid = (
+            total
+            <= self.max_portfolio_exposure_percent
+        )
+
+        return {
+            "valid": valid,
+            "current_exposure_percent": current,
+            "new_exposure_percent": new,
+            "total_exposure_percent": total,
+            "maximum_exposure_percent": (
+                self.max_portfolio_exposure_percent
+            ),
+            "reason": (
+                "Portfolio exposure is within limits."
+                if valid
+                else "Maximum portfolio exposure exceeded."
+            ),
+        }
+
+    # =====================================================
+    # OPEN POSITION LIMIT
+    # =====================================================
+
+    def validate_position_count(
+        self,
+        open_positions: int,
+    ) -> dict[str, Any]:
+
+        count = max(
+            0,
+            int(
+                self._float(
+                    open_positions
+                )
+            ),
+        )
+
+        valid = (
+            count
+            < self.max_open_positions
+        )
+
+        return {
+            "valid": valid,
+            "open_positions": count,
+            "maximum_open_positions": (
+                self.max_open_positions
+            ),
+            "reason": (
+                "Position limit available."
+                if valid
+                else "Maximum open position limit reached."
+            ),
+        }
+
+    # =====================================================
+    # DAILY LOSS
+    # =====================================================
+
+    def validate_daily_loss(
+        self,
+    ) -> dict[str, Any]:
+
+        valid = (
+            self.daily_pnl_percent
+            > -self.max_daily_loss_percent
+        )
+
+        return {
+            "valid": valid,
+            "daily_pnl_percent": (
+                self.daily_pnl_percent
+            ),
+            "maximum_daily_loss_percent": (
+                self.max_daily_loss_percent
+            ),
+            "reason": (
+                "Daily loss limit is not breached."
+                if valid
+                else "Daily loss limit has been breached."
+            ),
+        }
+
+    # =====================================================
+    # MASTER EVALUATION
     # =====================================================
 
     def evaluate(
@@ -154,10 +394,22 @@ class RiskEngine:
         stop_loss: float,
         current_open_positions: int = 0,
         portfolio_exposure_percent: float = 0.0,
+        new_exposure_percent: float = 0.0,
         risk_percent: float | None = None,
+        direction: str = "LONG",
+        take_profit: float | None = None,
+        minimum_risk_reward: float = 1.5,
     ) -> RiskDecision:
 
         failures: list[str] = []
+
+        risk_pct = (
+            self.risk_per_trade_percent
+            if risk_percent is None
+            else self._float(
+                risk_percent
+            )
+        )
 
         balance = self._float(
             account_balance
@@ -171,60 +423,14 @@ class RiskEngine:
             stop_loss
         )
 
-        exposure = self._float(
-            portfolio_exposure_percent
-        )
-
-        open_positions = int(
-            max(
-                0,
-                current_open_positions,
-            )
-        )
-
-        risk_pct = (
-            self.risk_per_trade_percent
-            if risk_percent is None
-            else self._float(
-                risk_percent
-            )
-        )
-
         # -------------------------------------------------
-        # Account balance
+        # Basic account
         # -------------------------------------------------
 
         if balance <= 0:
             failures.append(
                 "INVALID_ACCOUNT_BALANCE"
             )
-
-        # -------------------------------------------------
-        # Entry / stop
-        # -------------------------------------------------
-
-        if entry_price <= 0:
-            failures.append(
-                "INVALID_ENTRY"
-            )
-
-        if stop_price <= 0:
-            failures.append(
-                "INVALID_STOP"
-            )
-
-        if (
-            entry_price > 0
-            and stop_price > 0
-            and entry_price == stop_price
-        ):
-            failures.append(
-                "ZERO_STOP_DISTANCE"
-            )
-
-        # -------------------------------------------------
-        # Risk percentage
-        # -------------------------------------------------
 
         if risk_pct <= 0:
             failures.append(
@@ -237,68 +443,148 @@ class RiskEngine:
             )
 
         # -------------------------------------------------
+        # Stop
+        # -------------------------------------------------
+
+        stop_result = (
+            self.validate_stop_loss(
+                direction=direction,
+                entry=entry_price,
+                stop_loss=stop_price,
+            )
+        )
+
+        if not stop_result["valid"]:
+            failures.append(
+                "INVALID_STOP"
+            )
+
+        # -------------------------------------------------
+        # Position count
+        # -------------------------------------------------
+
+        position_result = (
+            self.validate_position_count(
+                current_open_positions
+            )
+        )
+
+        if not position_result["valid"]:
+            failures.append(
+                "MAX_OPEN_POSITIONS"
+            )
+
+        # -------------------------------------------------
         # Portfolio exposure
         # -------------------------------------------------
 
-        if (
-            exposure
-            >= self.max_portfolio_exposure_percent
-        ):
+        exposure_result = (
+            self.validate_exposure(
+                account_balance=balance,
+                current_exposure_percent=(
+                    portfolio_exposure_percent
+                ),
+                new_exposure_percent=(
+                    new_exposure_percent
+                ),
+            )
+        )
+
+        if not exposure_result["valid"]:
             failures.append(
                 "PORTFOLIO_EXPOSURE_LIMIT"
             )
 
         # -------------------------------------------------
-        # Open position count
+        # Daily loss
         # -------------------------------------------------
 
-        if (
-            open_positions
-            >= self.max_open_positions
-        ):
+        daily_result = (
+            self.validate_daily_loss()
+        )
+
+        if not daily_result["valid"]:
             failures.append(
-                "MAX_OPEN_POSITIONS"
+                "DAILY_LOSS_LIMIT"
             )
 
         # -------------------------------------------------
         # Position size
         # -------------------------------------------------
 
-        position_size = (
-            self.calculate_position_size(
-                account_balance=balance,
-                entry=entry_price,
-                stop_loss=stop_price,
-                risk_percent=risk_pct,
-            )
+        size = self.position_size(
+            account_balance=balance,
+            entry=entry_price,
+            stop_loss=stop_price,
+            risk_percent=risk_pct,
         )
 
-        if position_size <= 0:
+        if size <= 0:
             failures.append(
                 "POSITION_SIZE_ZERO"
             )
+
+        risk_cash = self.risk_amount(
+            balance,
+            risk_pct,
+        )
+
+        # -------------------------------------------------
+        # R:R
+        # -------------------------------------------------
+
+        rr = None
+
+        if take_profit is not None:
+
+            rr = self.calculate_risk_reward(
+                entry=entry_price,
+                stop_loss=stop_price,
+                take_profit=take_profit,
+            )
+
+            if rr < minimum_risk_reward:
+                failures.append(
+                    "INSUFFICIENT_RISK_REWARD"
+                )
 
         allowed = (
             len(failures) == 0
         )
 
-        if allowed:
-            reason = (
-                "Risk gates passed."
-            )
-        else:
-            reason = (
-                "Risk gates failed."
-            )
-
         return RiskDecision(
             allowed=allowed,
-            reason=reason,
+            reason=(
+                "All risk gates passed."
+                if allowed
+                else "One or more risk gates failed."
+            ),
             risk_per_trade_percent=risk_pct,
-            position_size=position_size,
-            portfolio_exposure_percent=exposure,
+            position_size=size,
+            risk_amount=risk_cash,
+            portfolio_exposure_percent=(
+                exposure_result[
+                    "total_exposure_percent"
+                ]
+            ),
             failures=failures,
         )
+
+    # =====================================================
+    # DAILY RESET
+    # =====================================================
+
+    def reset_daily_stats(
+        self,
+    ) -> dict[str, Any]:
+
+        self.daily_pnl_percent = 0.0
+
+        return {
+            "success": True,
+            "daily_pnl_percent": 0.0,
+            "status": "daily_risk_reset",
+        }
 
     # =====================================================
     # STATUS
@@ -309,6 +595,7 @@ class RiskEngine:
     ) -> dict[str, Any]:
 
         return {
+            "enabled": True,
             "risk_per_trade_percent": (
                 self.risk_per_trade_percent
             ),
@@ -318,8 +605,13 @@ class RiskEngine:
             "max_open_positions": (
                 self.max_open_positions
             ),
+            "max_daily_loss_percent": (
+                self.max_daily_loss_percent
+            ),
+            "daily_pnl_percent": (
+                self.daily_pnl_percent
+            ),
             "live_trading": False,
-            "status": "risk_engine_ready",
         }
 
 
