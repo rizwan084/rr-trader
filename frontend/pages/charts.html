@@ -10,364 +10,699 @@
         content="width=device-width, initial-scale=1.0"
     >
 
+    <meta
+        name="theme-color"
+        content="#050914"
+    >
+
     <title>
         RR Trader — Charts
     </title>
+
+
+    <style>
+
+        :root {
+            --bg: #050914;
+            --panel: #0c1423;
+            --panel2: #101a2d;
+            --border: rgba(120,150,200,.18);
+            --text: #f4f7ff;
+            --muted: #8794aa;
+            --blue: #2295ff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+
+            margin: 0;
+
+            width: 100%;
+
+            min-height: 100%;
+
+            background:
+                var(--bg);
+
+            color:
+                var(--text);
+
+            font-family:
+                Inter,
+                Arial,
+                sans-serif;
+
+        }
+
+
+        body {
+
+            min-height:
+                100vh;
+
+            background:
+                radial-gradient(
+                    circle at 10% 10%,
+                    rgba(
+                        25,
+                        110,
+                        255,
+                        .12
+                    ),
+                    transparent 30%
+                ),
+                radial-gradient(
+                    circle at 90% 20%,
+                    rgba(
+                        100,
+                        60,
+                        255,
+                        .10
+                    ),
+                    transparent 30%
+                ),
+                #050914;
+
+        }
+
+
+        .page {
+
+            width:
+                min(
+                    1500px,
+                    calc(
+                        100% - 30px
+                    )
+                );
+
+            margin:
+                18px auto 40px;
+
+        }
+
+
+        .top {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                15px;
+
+            margin-bottom:
+                12px;
+
+        }
+
+
+        .title h1 {
+
+            margin: 0;
+
+            font-size:
+                22px;
+
+        }
+
+
+        .title p {
+
+            margin:
+                4px 0 0;
+
+            color:
+                var(--muted);
+
+            font-size:
+                12px;
+
+        }
+
+
+        .controls {
+
+            display:
+                flex;
+
+            gap:
+                8px;
+
+            flex-wrap:
+                wrap;
+
+        }
+
+
+        input,
+        select,
+        button {
+
+            min-height:
+                40px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                9px;
+
+            padding:
+                9px 12px;
+
+            background:
+                var(--panel);
+
+            color:
+                var(--text);
+
+        }
+
+
+        button {
+
+            cursor:
+                pointer;
+
+        }
+
+
+        .primary {
+
+            border:
+                0;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #1798ff,
+                    #6558ff
+                );
+
+            font-weight:
+                800;
+
+        }
+
+
+        .back {
+
+            background:
+                var(--panel);
+
+        }
+
+
+        .chart-panel {
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                16px;
+
+            overflow:
+                hidden;
+
+            background:
+                var(--panel);
+
+            box-shadow:
+                0 20px 60px
+                rgba(
+                    0,
+                    0,
+                    0,
+                    .25
+                );
+
+        }
+
+
+        .chart-header {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            padding:
+                13px 16px;
+
+            border-bottom:
+                1px solid
+                var(--border);
+
+            background:
+                var(--panel2);
+
+        }
+
+
+        .symbol-name {
+
+            font-weight:
+                900;
+
+        }
+
+
+        .chart-area {
+
+            width:
+                100%;
+
+            height:
+                720px;
+
+            background:
+                #070c15;
+
+        }
+
+
+        .info {
+
+            padding:
+                11px 15px;
+
+            border-top:
+                1px solid
+                var(--border);
+
+            color:
+                var(--muted);
+
+            font-size:
+                11px;
+
+        }
+
+
+        @media (
+            max-width: 700px
+        ) {
+
+            .page {
+
+                width:
+                    calc(
+                        100% - 16px
+                    );
+
+            }
+
+
+            .top {
+
+                align-items:
+                    flex-start;
+
+                flex-direction:
+                    column;
+
+            }
+
+
+            .chart-area {
+
+                height:
+                    560px;
+
+            }
+
+        }
+
+    </style>
 
 </head>
 
 
 <body>
 
-    <main>
+<div class="page">
 
-        <header>
+
+    <div class="top">
+
+        <div class="title">
 
             <h1>
                 RR Trader Charts
             </h1>
 
             <p>
-                Professional multi-timeframe market charting.
+                TradingView Advanced Chart
             </p>
 
-        </header>
+        </div>
 
 
-        <section>
+        <div class="controls">
 
-            <h2>
-                Chart Controls
-            </h2>
+            <button
+                class="back"
+                onclick="
+                    window.location.href='/dashboard'
+                "
+            >
+                Dashboard
+            </button>
 
-
-            <label for="market">
-                Market
-            </label>
-
-            <select id="market">
-
-                <option value="futures">
-                    Binance Futures
-                </option>
-
-                <option value="spot">
-                    Binance Spot
-                </option>
-
-            </select>
-
-
-            <br><br>
-
-
-            <label for="symbol">
-                Symbol
-            </label>
 
             <input
                 id="symbol"
-                type="text"
                 value="BTCUSDT"
                 placeholder="BTCUSDT"
             >
 
 
-            <br><br>
+            <select
+                id="interval"
+            >
 
-
-            <label for="timeframe">
-                Timeframe
-            </label>
-
-            <select id="timeframe">
-
-                <option value="15m">
+                <option value="15">
                     15m
                 </option>
 
-                <option value="1h">
+                <option value="60">
                     1H
                 </option>
 
-                <option value="4h">
+                <option value="240">
                     4H
                 </option>
 
             </select>
 
 
-            <br><br>
-
-
             <button
-                type="button"
+                class="primary"
                 id="load-chart"
             >
                 Load Chart
             </button>
 
-        </section>
+        </div>
+
+    </div>
 
 
-        <section>
+    <section
+        class="chart-panel"
+    >
 
-            <h2>
-                Trading Chart
-            </h2>
-
+        <div
+            class="chart-header"
+        >
 
             <div
-                id="chart-container"
-                style="
-                    width:100%;
-                    min-height:600px;
-                    border:1px solid #ccc;
-                    padding:20px;
-                "
+                class="symbol-name"
+                id="chart-title"
             >
-
-                Chart will appear here.
-
+                BTCUSDT · 15m
             </div>
-
-        </section>
-
-
-        <section>
-
-            <h2>
-                Timeframe Information
-            </h2>
-
 
             <div>
-
-                <strong>
-                    15m
-                </strong>
-
-                <p>
-                    Entry timing, momentum and local market structure.
-                </p>
-
+                Binance Futures
             </div>
 
+        </div>
 
-            <div>
 
-                <strong>
-                    1H
-                </strong>
+        <div
+            class="chart-area"
+            id="tradingview-chart"
+        ></div>
 
-                <p>
-                    Primary trend confirmation.
-                </p>
 
-            </div>
+        <div class="info">
 
+            Use the symbol and timeframe controls above.
+            Chart data is displayed through the TradingView
+            embedded chart.
 
-            <div>
+        </div>
 
-                <strong>
-                    4H
-                </strong>
+    </section>
 
-                <p>
-                    Higher-timeframe market regime.
-                </p>
+</div>
 
-            </div>
 
-        </section>
+<script>
 
-    </main>
+    function normalizeSymbol(
+        value
+    ) {
 
+        let symbol =
+            String(
+                value || ""
+            )
+            .toUpperCase()
+            .replace(
+                "/",
+                ""
+            )
+            .replace(
+                "-",
+                ""
+            )
+            .trim();
 
-    <script>
 
-        // =====================================================
-        // LOAD CHART
-        // =====================================================
+        if (
+            !symbol.endsWith(
+                "USDT"
+            )
+        ) {
 
-        function loadChart() {
-
-            const symbol =
-                String(
-                    document.getElementById(
-                        "symbol"
-                    ).value
-                )
-                .trim()
-                .toUpperCase()
-                .replace(
-                    /[^A-Z0-9]/g,
-                    ""
-                );
-
-
-            const market =
-                document.getElementById(
-                    "market"
-                ).value;
-
-
-            const timeframe =
-                document.getElementById(
-                    "timeframe"
-                ).value;
-
-
-            const container =
-                document.getElementById(
-                    "chart-container"
-                );
-
-
-            if (!symbol) {
-
-                container.textContent =
-                    "Please enter a symbol.";
-
-                return;
-
-            }
-
-
-            let interval = "15";
-
-
-            if (
-                timeframe === "1h"
-            ) {
-
-                interval = "60";
-
-            }
-
-
-            if (
-                timeframe === "4h"
-            ) {
-
-                interval = "240";
-
-            }
-
-
-            // -------------------------------------------------
-            // TradingView widget shell
-            // -------------------------------------------------
-
-            container.innerHTML = `
-
-                <div
-                    class="tradingview-widget-container"
-                    style="
-                        height:600px;
-                        width:100%;
-                    "
-                >
-
-                    <div
-                        class="tradingview-widget-container__widget"
-                        style="
-                            height:100%;
-                            width:100%;
-                        "
-                    >
-                    </div>
-
-                </div>
-
-            `;
-
-
-            const script =
-                document.createElement(
-                    "script"
-                );
-
-
-            script.type =
-                "text/javascript";
-
-
-            script.src =
-                "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-
-
-            script.async = true;
-
-
-            script.textContent =
-                JSON.stringify({
-
-                    autosize: true,
-
-                    symbol:
-                        "BINANCE:"
-                        + symbol,
-
-                    interval:
-                        interval,
-
-                    timezone:
-                        "Etc/UTC",
-
-                    theme:
-                        "dark",
-
-                    style:
-                        "1",
-
-                    locale:
-                        "en",
-
-                    allow_symbol_change:
-                        true,
-
-                    calendar:
-                        false,
-
-                    support_host:
-                        "https://www.tradingview.com"
-
-                });
-
-
-            container
-                .querySelector(
-                    ".tradingview-widget-container__widget"
-                )
-                .appendChild(
-                    script
-                );
+            symbol +=
+                "USDT";
 
         }
 
 
-        // =====================================================
-        // LOAD CHART BUTTON
-        // =====================================================
+        return symbol;
 
-        document
-            .getElementById(
-                "load-chart"
-            )
-            .addEventListener(
-                "click",
-                loadChart
+    }
+
+
+    function intervalLabel(
+        value
+    ) {
+
+        if (
+            value === "15"
+        ) {
+
+            return "15m";
+
+        }
+
+        if (
+            value === "60"
+        ) {
+
+            return "1H";
+
+        }
+
+        return "4H";
+
+    }
+
+
+    function loadTradingView() {
+
+        const symbol =
+            normalizeSymbol(
+                document.getElementById(
+                    "symbol"
+                ).value
             );
 
 
-        // =====================================================
-        // INITIAL CHART
-        // =====================================================
+        const interval =
+            document.getElementById(
+                "interval"
+            ).value;
 
-        loadChart();
 
-    </script>
+        const title =
+            document.getElementById(
+                "chart-title"
+            );
+
+
+        title.textContent =
+            `${symbol} · ${intervalLabel(
+                interval
+            )}`;
+
+
+        const container =
+            document.getElementById(
+                "tradingview-chart"
+            );
+
+
+        container.innerHTML = "";
+
+
+        const wrapper =
+            document.createElement(
+                "div"
+            );
+
+
+        wrapper.style.width =
+            "100%";
+
+        wrapper.style.height =
+            "100%";
+
+
+        const script =
+            document.createElement(
+                "script"
+            );
+
+
+        script.type =
+            "text/javascript";
+
+        script.src =
+            "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+
+        script.async =
+            true;
+
+
+        const config = {
+
+            autosize: true,
+
+            symbol:
+                `BINANCE:${symbol}`,
+
+            interval:
+                interval,
+
+            timezone:
+                "Etc/UTC",
+
+            theme:
+                "dark",
+
+            style:
+                "1",
+
+            locale:
+                "en",
+
+            allow_symbol_change:
+                true,
+
+            calendar:
+                false,
+
+            hide_top_toolbar:
+                false,
+
+            hide_legend:
+                false,
+
+            withdateranges:
+                true,
+
+            hide_side_toolbar:
+                false,
+
+            save_image:
+                true,
+
+            details:
+                true,
+
+            hotlist:
+                true,
+
+            studies: [
+                "Volume@tv-basicstudies"
+            ]
+
+        };
+
+
+        script.innerHTML =
+            JSON.stringify(
+                config
+            );
+
+
+        wrapper.appendChild(
+            script
+        );
+
+
+        container.appendChild(
+            wrapper
+        );
+
+    }
+
+
+    document
+        .getElementById(
+            "load-chart"
+        )
+        .addEventListener(
+            "click",
+            loadTradingView
+        );
+
+
+    document
+        .getElementById(
+            "symbol"
+        )
+        .addEventListener(
+            "keydown",
+            event => {
+
+                if (
+                    event.key
+                    === "Enter"
+                ) {
+
+                    loadTradingView();
+
+                }
+
+            }
+        );
+
+
+    loadTradingView();
+
+</script>
 
 </body>
 
