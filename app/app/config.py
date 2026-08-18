@@ -1,25 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
 class Settings:
-    """
-    RR Trader application configuration.
-
-    Supports:
-    - Binance Futures
-    - Binance Spot
-    - Market scanner
-    - Signal confidence
-    - AI assistant
-    - Signal memory
-    - TP/SL monitoring
-    - Telegram notifications
-    """
-
     # =========================================================
     # APPLICATION
     # =========================================================
@@ -53,10 +48,7 @@ class Settings:
     # =========================================================
 
     request_timeout: float = float(
-        os.getenv(
-            "REQUEST_TIMEOUT",
-            "15",
-        )
+        os.getenv("REQUEST_TIMEOUT", "15")
     )
 
     # =========================================================
@@ -64,10 +56,7 @@ class Settings:
     # =========================================================
 
     min_confidence: int = int(
-        os.getenv(
-            "MIN_CONFIDENCE",
-            "85",
-        )
+        os.getenv("MIN_CONFIDENCE", "85")
     )
 
     # =========================================================
@@ -75,17 +64,11 @@ class Settings:
     # =========================================================
 
     auto_scan_interval: int = int(
-        os.getenv(
-            "AUTO_SCAN_INTERVAL",
-            "60",
-        )
+        os.getenv("AUTO_SCAN_INTERVAL", "60")
     )
 
     auto_scan_coins: int = int(
-        os.getenv(
-            "AUTO_SCAN_COINS",
-            "6",
-        )
+        os.getenv("AUTO_SCAN_COINS", "6")
     )
 
     # =========================================================
@@ -93,10 +76,7 @@ class Settings:
     # =========================================================
 
     cache_seconds: int = int(
-        os.getenv(
-            "CACHE_SECONDS",
-            "20",
-        )
+        os.getenv("CACHE_SECONDS", "20")
     )
 
     # =========================================================
@@ -106,7 +86,7 @@ class Settings:
     default_market: str = os.getenv(
         "DEFAULT_MARKET",
         "futures",
-    )
+    ).strip().lower()
 
     default_interval: str = os.getenv(
         "DEFAULT_INTERVAL",
@@ -114,20 +94,17 @@ class Settings:
     )
 
     default_candle_limit: int = int(
-        os.getenv(
-            "DEFAULT_CANDLE_LIMIT",
-            "200",
-        )
+        os.getenv("DEFAULT_CANDLE_LIMIT", "200")
     )
 
     # =========================================================
     # AI ASSISTANT
     # =========================================================
 
-    ai_enabled: bool = os.getenv(
+    ai_enabled: bool = _env_bool(
         "AI_ENABLED",
-        "true",
-    ).lower() == "true"
+        False,
+    )
 
     openai_api_key: str = os.getenv(
         "OPENAI_API_KEY",
@@ -140,43 +117,35 @@ class Settings:
     )
 
     ai_timeout: float = float(
-        os.getenv(
-            "AI_TIMEOUT",
-            "30",
-        )
+        os.getenv("AI_TIMEOUT", "30")
     )
 
     # =========================================================
-    # AI MEMORY
+    # SIGNAL MEMORY
     # =========================================================
 
-    signal_memory_enabled: bool = os.getenv(
+    signal_memory_enabled: bool = _env_bool(
         "SIGNAL_MEMORY_ENABLED",
-        "true",
-    ).lower() == "true"
+        True,
+    )
 
-    # Check previous signals automatically
-    signal_monitor_enabled: bool = os.getenv(
+    signal_monitor_enabled: bool = _env_bool(
         "SIGNAL_MONITOR_ENABLED",
-        "true",
-    ).lower() == "true"
+        True,
+    )
 
-    # How often TP/SL status should be checked
     signal_monitor_interval: int = int(
-        os.getenv(
-            "SIGNAL_MONITOR_INTERVAL",
-            "60",
-        )
+        os.getenv("SIGNAL_MONITOR_INTERVAL", "60")
     )
 
     # =========================================================
     # TELEGRAM
     # =========================================================
 
-    telegram_enabled: bool = os.getenv(
+    telegram_enabled: bool = _env_bool(
         "TELEGRAM_ENABLED",
-        "true",
-    ).lower() == "true"
+        False,
+    )
 
     telegram_bot_token: str = os.getenv(
         "TELEGRAM_BOT_TOKEN",
@@ -189,31 +158,24 @@ class Settings:
     )
 
     telegram_timeout: float = float(
-        os.getenv(
-            "TELEGRAM_TIMEOUT",
-            "15",
-        )
+        os.getenv("TELEGRAM_TIMEOUT", "15")
     )
 
-    # Send new signals
-    telegram_signal_notifications: bool = os.getenv(
+    telegram_signal_notifications: bool = _env_bool(
         "TELEGRAM_SIGNAL_NOTIFICATIONS",
-        "true",
-    ).lower() == "true"
+        True,
+    )
 
-    # Send TP/SL results
-    telegram_result_notifications: bool = os.getenv(
+    telegram_result_notifications: bool = _env_bool(
         "TELEGRAM_RESULT_NOTIFICATIONS",
-        "true",
-    ).lower() == "true"
+        True,
+    )
 
     # =========================================================
     # VALIDATION
     # =========================================================
 
     def validate(self) -> None:
-        """Validate important application settings."""
-
         if not 0 <= self.min_confidence <= 100:
             raise ValueError(
                 "MIN_CONFIDENCE must be between 0 and 100."
@@ -234,10 +196,7 @@ class Settings:
                 "CACHE_SECONDS cannot be negative."
             )
 
-        if self.default_market not in {
-            "spot",
-            "futures",
-        }:
+        if self.default_market not in {"spot", "futures"}:
             raise ValueError(
                 "DEFAULT_MARKET must be 'spot' or 'futures'."
             )
@@ -252,22 +211,33 @@ class Settings:
                 "SIGNAL_MONITOR_INTERVAL must be at least 10 seconds."
             )
 
+        # AI is optional.
+        # Do not crash the entire server if the API key
+        # has not been configured in Render yet.
+        if self.ai_enabled and not self.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY is required when AI_ENABLED=true."
+            )
+
+        # Telegram is optional.
+        # Only validate credentials when explicitly enabled.
         if self.telegram_enabled:
             if not self.telegram_bot_token:
                 raise ValueError(
-                    "TELEGRAM_BOT_TOKEN is required when Telegram is enabled."
+                    "TELEGRAM_BOT_TOKEN is required when "
+                    "TELEGRAM_ENABLED=true."
                 )
 
             if not self.telegram_chat_id:
                 raise ValueError(
-                    "TELEGRAM_CHAT_ID is required when Telegram is enabled."
+                    "TELEGRAM_CHAT_ID is required when "
+                    "TELEGRAM_ENABLED=true."
                 )
 
-        if self.ai_enabled and not self.openai_api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is required when AI is enabled."
-            )
 
+# =============================================================
+# GLOBAL SETTINGS INSTANCE
+# =============================================================
 
 settings = Settings()
 settings.validate()
