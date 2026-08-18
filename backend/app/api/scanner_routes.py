@@ -81,32 +81,36 @@ async def scanner_results(
         "last_scan_at": snapshot.get(
             "last_scan_at"
         ),
-        "next_scan_in_seconds":
+        "next_scan_in_seconds": (
             snapshot.get(
                 "next_scan_in_seconds"
-            ),
-        "scanned_universe":
+            )
+        ),
+        "scanned_universe": (
             latest.get(
                 "scanned_universe",
                 0,
-            ),
-        "candidate_count":
+            )
+        ),
+        "candidate_count": (
             latest.get(
                 "candidate_count",
                 0,
-            ),
-        "deep_analyzed":
+            )
+        ),
+        "deep_analyzed": (
             latest.get(
                 "deep_analyzed",
                 0,
-            ),
-        "publishable_count":
+            )
+        ),
+        "publishable_count": (
             latest.get(
                 "publishable_count",
                 0,
-            ),
-        "results":
-            analyses[:limit],
+            )
+        ),
+        "results": analyses[:limit],
     }
 
 
@@ -146,7 +150,11 @@ async def scanner_top(
     qualified = [
         item
         for item in analyses
-        if item.get(
+        if isinstance(
+            item,
+            dict,
+        )
+        and item.get(
             "publishable",
             False,
         )
@@ -169,13 +177,163 @@ async def scanner_top(
             len(qualified),
             limit,
         ),
-        "opportunities":
-            qualified[:limit],
+        "opportunities": (
+            qualified[:limit]
+        ),
     }
 
 
 # =========================================================
-# SCAN NOW
+# BEST CURRENT SETUP
+# =========================================================
+
+@router.get("/scanner/best")
+async def scanner_best() -> dict[str, Any]:
+
+    snapshot = (
+        auto_scanner.snapshot()
+    )
+
+    latest = snapshot.get(
+        "latest",
+        {},
+    )
+
+    analyses = latest.get(
+        "analyses",
+        [],
+    )
+
+    if not isinstance(
+        analyses,
+        list,
+    ):
+        analyses = []
+
+    qualified = [
+        item
+        for item in analyses
+        if isinstance(
+            item,
+            dict,
+        )
+        and item.get(
+            "publishable",
+            False,
+        )
+    ]
+
+    qualified.sort(
+        key=lambda item: float(
+            item.get(
+                "confidence",
+                0,
+            )
+            or 0
+        ),
+        reverse=True,
+    )
+
+    best = (
+        qualified[0]
+        if qualified
+        else None
+    )
+
+    return {
+        "success": True,
+        "found": best is not None,
+        "best": best,
+        "market": snapshot.get(
+            "market",
+            "futures",
+        ),
+        "last_scan_at": snapshot.get(
+            "last_scan_at"
+        ),
+        "next_scan_in_seconds": (
+            snapshot.get(
+                "next_scan_in_seconds"
+            )
+        ),
+    }
+
+
+# =========================================================
+# ALL RESULTS INCLUDING REJECTED
+# =========================================================
+
+@router.get("/scanner/all")
+async def scanner_all(
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=50,
+    ),
+) -> dict[str, Any]:
+
+    snapshot = (
+        auto_scanner.snapshot()
+    )
+
+    latest = snapshot.get(
+        "latest",
+        {},
+    )
+
+    analyses = latest.get(
+        "analyses",
+        [],
+    )
+
+    if not isinstance(
+        analyses,
+        list,
+    ):
+        analyses = []
+
+    ranked = sorted(
+        analyses,
+        key=lambda item: float(
+            item.get(
+                "confidence",
+                0,
+            )
+            or 0
+        ),
+        reverse=True,
+    )
+
+    return {
+        "success": True,
+        "market": snapshot.get(
+            "market",
+            "futures",
+        ),
+        "running": snapshot.get(
+            "running",
+            False,
+        ),
+        "last_scan_at": snapshot.get(
+            "last_scan_at"
+        ),
+        "next_scan_in_seconds": (
+            snapshot.get(
+                "next_scan_in_seconds"
+            )
+        ),
+        "count": min(
+            len(ranked),
+            limit,
+        ),
+        "results": (
+            ranked[:limit]
+        ),
+    }
+
+
+# =========================================================
+# MANUAL SCAN
 # =========================================================
 
 @router.post("/scanner/scan-now")
@@ -186,3 +344,8 @@ async def scanner_scan_now() -> dict[str, Any]:
     )
 
     return result
+
+
+__all__ = [
+    "router",
+]
