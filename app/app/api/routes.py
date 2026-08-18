@@ -4,14 +4,6 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-# IMPORTANT:
-# Project structure:
-# app/
-#   app/
-#     services/
-#       scanner.py
-#
-# Therefore the correct import is:
 from app.app.services.scanner import MarketScanner
 
 
@@ -24,7 +16,7 @@ router = APIRouter()
 
 def _serialize(value: Any) -> Any:
     """
-    Convert Pydantic models, dictionaries and lists
+    Convert Pydantic models, dictionaries, lists and tuples
     into JSON-compatible data.
     """
 
@@ -53,12 +45,70 @@ def _serialize(value: Any) -> Any:
 
 
 # =========================================================
+# MARKET VALIDATION
+# =========================================================
+
+def _validate_market(
+    market: str,
+) -> str:
+
+    market = (
+        market
+        .lower()
+        .strip()
+    )
+
+    if market not in {
+        "futures",
+        "spot",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "market must be either "
+                "'futures' or 'spot'"
+            ),
+        )
+
+    return market
+
+
+# =========================================================
+# SYMBOL NORMALIZATION
+# =========================================================
+
+def _normalize_symbol(
+    symbol: str,
+) -> str:
+
+    symbol = (
+        symbol
+        .upper()
+        .replace("/", "")
+        .replace("-", "")
+        .strip()
+    )
+
+    if not symbol.endswith("USDT"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Only USDT trading pairs "
+                "are currently supported."
+            ),
+        )
+
+    return symbol
+
+
+# =========================================================
 # SCANNER RUNNER
 # =========================================================
 
 async def _run_scanner(
     symbol: Optional[str] = None,
     market: str = "futures",
+    max_candidates: Optional[int] = None,
 ) -> Any:
     """
     Run RR Trader MarketScanner.
@@ -72,155 +122,59 @@ async def _run_scanner(
 
     scanner = MarketScanner()
 
-    market = market.lower().strip()
+    market = _validate_market(
+        market
+    )
 
     # -----------------------------------------------------
-    # SYMBOL ANALYSIS
+    # SINGLE SYMBOL ANALYSIS
     # -----------------------------------------------------
 
     if symbol:
 
-        symbol = (
+        symbol = _normalize_symbol(
             symbol
-            .upper()
-            .replace("/", "")
-            .strip()
         )
 
-        symbol_methods = (
-            "scan_symbol",
-            "analyze_symbol",
-            "scan_market",
-            "analyze",
+        result = await scanner.scan_symbol(
+            symbol=symbol,
+            market=market,
         )
 
-        for method_name in symbol_methods:
-
-            method = getattr(
-                scanner,
-                method_name,
-                None,
-            )
-
-            if not callable(method):
-                continue
-
-            # Try keyword arguments first
-            try:
-
-                result = method(
-                    symbol=symbol,
-                    market=market,
-                )
-
-                if hasattr(
-                    result,
-                    "__await__",
-                ):
-                    result = await result
-
-                return result
-
-            except TypeError:
-                pass
-
-            # Try positional arguments
-            try:
-
-                result = method(
-                    symbol,
-                    market,
-                )
-
-                if hasattr(
-                    result,
-                    "__await__",
-                ):
-                    result = await result
-
-                return result
-
-            except TypeError:
-                continue
+        return result
 
     # -----------------------------------------------------
     # GENERAL MARKET SCAN
     # -----------------------------------------------------
 
-    scan_methods = (
-        "scan",
-        "scan_market",
-        "scan_markets",
-        "run",
-        "execute",
-    )
+    # -----------------------------------------------------
+    # IMPORTANT MEMORY PROTECTION
+    #
+    # Render has previously killed the process with
+    # status 137 when too much scanning work was requested.
+    #
+    # The scanner is now limited to a maximum of 5 symbols
+    # through the API layer.
+    # -----------------------------------------------------
 
-    for method_name in scan_methods:
-
-        method = getattr(
-            scanner,
-            method_name,
-            None,
+    safe_max_candidates = (
+        5
+        if max_candidates is None
+        else max(
+            1,
+            min(
+                int(max_candidates),
+                5,
+            ),
         )
-
-        if not callable(method):
-            continue
-
-        # Try keyword market
-        try:
-
-            result = method(
-                market=market,
-            )
-
-            if hasattr(
-                result,
-                "__await__",
-            ):
-                result = await result
-
-            return result
-
-        except TypeError:
-            pass
-
-        # Try positional market
-        try:
-
-            result = method(
-                market,
-            )
-
-            if hasattr(
-                result,
-                "__await__",
-            ):
-                result = await result
-
-            return result
-
-        except TypeError:
-            pass
-
-        # Try without arguments
-        try:
-
-            result = method()
-
-            if hasattr(
-                result,
-                "__await__",
-            ):
-                result = await result
-
-            return result
-
-        except TypeError:
-            continue
-
-    raise RuntimeError(
-        "MarketScanner does not expose a supported scan method."
     )
+
+    result = await scanner.scan(
+        market=market,
+        max_candidates=safe_max_candidates,
+    )
+
+    return result
 
 
 # =========================================================
@@ -234,7 +188,7 @@ async def api_root() -> dict[str, Any]:
         "success": True,
         "app": "RR Trader",
         "status": "online",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "markets": [
             "futures",
             "spot",
@@ -244,6 +198,13 @@ async def api_root() -> dict[str, Any]:
             "/api/markets",
             "/api/scan",
             "/api/analyze",
+            "/api/signals",
+        ],
+        "timeframes": [
+            "5m",
+            "15m",
+            "1h",
+            "4h",
         ],
         "message": "RR Trader API is running",
     }
@@ -305,54 +266,49 @@ async def scan_market(
             "Optional symbol, for example BTCUSDT"
         ),
     ),
+    max_candidates: int = Query(
+        default=5,
+        ge=1,
+        le=5,
+        description=(
+            "Maximum number of coins to scan. "
+            "Hard limited to 5 for Render memory safety."
+        ),
+    ),
 ) -> dict[str, Any]:
 
-    market = market.lower().strip()
+    market = _validate_market(
+        market
+    )
 
-    if market not in {
-        "futures",
-        "spot",
-    }:
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "market must be either "
-                "'futures' or 'spot'"
-            ),
-        )
+    normalized_symbol: Optional[str] = None
 
     if symbol:
-
-        symbol = (
-            symbol
-            .upper()
-            .replace("/", "")
-            .strip()
-        )
-
-        if not symbol.endswith("USDT"):
-
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Only USDT trading pairs "
-                    "are currently supported."
-                ),
+        normalized_symbol = (
+            _normalize_symbol(
+                symbol
             )
+        )
 
     try:
 
         result = await _run_scanner(
-            symbol=symbol,
+            symbol=normalized_symbol,
             market=market,
+            max_candidates=(
+                max_candidates
+                if normalized_symbol is None
+                else None
+            ),
         )
 
         return {
             "success": True,
             "market": market,
-            "symbol": symbol,
-            "data": _serialize(result),
+            "symbol": normalized_symbol,
+            "data": _serialize(
+                result
+            ),
         }
 
     except HTTPException:
@@ -388,39 +344,13 @@ async def analyze_symbol(
     ),
 ) -> dict[str, Any]:
 
-    market = market.lower().strip()
-
-    symbol = (
-        symbol
-        .upper()
-        .replace("/", "")
-        .strip()
+    market = _validate_market(
+        market
     )
 
-    # Validate market
-    if market not in {
-        "futures",
-        "spot",
-    }:
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "market must be either "
-                "'futures' or 'spot'"
-            ),
-        )
-
-    # Validate symbol
-    if not symbol.endswith("USDT"):
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Only USDT trading pairs "
-                "are currently supported."
-            ),
-        )
+    symbol = _normalize_symbol(
+        symbol
+    )
 
     try:
 
@@ -433,7 +363,9 @@ async def analyze_symbol(
             "success": True,
             "symbol": symbol,
             "market": market,
-            "data": _serialize(result),
+            "data": _serialize(
+                result
+            ),
         }
 
     except HTTPException:
@@ -448,6 +380,238 @@ async def analyze_symbol(
             ),
         ) from exc
 
+
+# =========================================================
+# HIGH-CONFIDENCE SIGNALS
+# =========================================================
+
+@router.get("/signals")
+async def high_confidence_signals(
+    market: str = Query(
+        default="futures",
+        description=(
+            "Binance market: futures or spot"
+        ),
+    ),
+    min_confidence: float = Query(
+        default=90.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Minimum confidence percentage."
+        ),
+    ),
+    max_candidates: int = Query(
+        default=5,
+        ge=1,
+        le=5,
+        description=(
+            "Maximum coins to scan. "
+            "Hard limited to 5 for memory safety."
+        ),
+) -> dict[str, Any]:
+
+    market = _validate_market(
+        market
+    )
+
+    try:
+
+        # -----------------------------------------------------
+        # Run a memory-safe market scan.
+        #
+        # Even if the frontend sends 30, the API never allows
+        # more than 5 candidates in one request.
+        # -----------------------------------------------------
+
+        result = await _run_scanner(
+            market=market,
+            max_candidates=max_candidates,
+        )
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            raise RuntimeError(
+                "Scanner returned an invalid response."
+            )
+
+        candidates = result.get(
+            "candidates",
+            [],
+        )
+
+        if not isinstance(
+            candidates,
+            list,
+        ):
+            candidates = []
+
+        # -----------------------------------------------------
+        # Filter by requested confidence.
+        # -----------------------------------------------------
+
+        filtered = []
+
+        for item in candidates:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            confidence = 0.0
+
+            try:
+                confidence = float(
+                    item.get(
+                        "confidence",
+                        0,
+                    )
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                confidence = 0.0
+
+            if confidence >= min_confidence:
+
+                filtered.append(
+                    item
+                )
+
+        # -----------------------------------------------------
+        # Sort strongest signals first.
+        # -----------------------------------------------------
+
+        filtered.sort(
+            key=lambda item: float(
+                item.get(
+                    "confidence",
+                    0,
+                )
+            ),
+            reverse=True,
+        )
+
+        # -----------------------------------------------------
+        # Separate LONG and SHORT.
+        # -----------------------------------------------------
+
+        long_signals = [
+            item
+            for item in filtered
+            if item.get(
+                "direction"
+            ) == "LONG"
+        ]
+
+        short_signals = [
+            item
+            for item in filtered
+            if item.get(
+                "direction"
+            ) == "SHORT"
+        ]
+
+        # -----------------------------------------------------
+        # Count confidence tiers.
+        # -----------------------------------------------------
+
+        signals_90_plus = [
+            item
+            for item in filtered
+            if float(
+                item.get(
+                    "confidence",
+                    0,
+                )
+            ) >= 90
+        ]
+
+        signals_95_plus = [
+            item
+            for item in filtered
+            if float(
+                item.get(
+                    "confidence",
+                    0,
+                )
+            ) >= 95
+        ]
+
+        signals_99_plus = [
+            item
+            for item in filtered
+            if float(
+                item.get(
+                    "confidence",
+                    0,
+                )
+            ) >= 99
+        ]
+
+        return {
+            "success": True,
+            "market": market,
+            "min_confidence": (
+                min_confidence
+            ),
+            "requested_candidates": (
+                max_candidates
+            ),
+            "safe_max_candidates": 5,
+            "scanned": len(
+                candidates
+            ),
+            "signals_found": len(
+                filtered
+            ),
+            "signals_90_plus": len(
+                signals_90_plus
+            ),
+            "signals_95_plus": len(
+                signals_95_plus
+            ),
+            "signals_99_plus": len(
+                signals_99_plus
+            ),
+            "long_signals": len(
+                long_signals
+            ),
+            "short_signals": len(
+                short_signals
+            ),
+            "signals": _serialize(
+                filtered
+            ),
+            "top_signals": _serialize(
+                filtered[
+                    :5
+                ]
+            ),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Signal scan error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# API EXPORT
+# =========================================================
 
 __all__ = [
     "router",
