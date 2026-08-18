@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader — Signals
+    </title>
+
+</head>
+
+
+<body>
+
+    <main>
+
+        <header>
+
+            <h1>
+                RR Trader Signals
+            </h1>
+
+            <p>
+                Confirmed LONG and SHORT signals.
+            </p>
+
+        </header>
+
+
+        <section>
+
+            <div>
+
+                <strong>
+                    Core MTF
+                </strong>
+
+                <p>
+                    15m / 1H / 4H
+                </p>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Minimum Confidence
+                </strong>
+
+                <p>
+                    85%
+                </p>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Trade State
+                </strong>
+
+                <p>
+                    LONG / SHORT / NO TRADE
+                </p>
+
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Live Signals
+            </h2>
+
+            <div id="signals">
+
+                Loading signals...
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <script>
+
+        // =====================================================
+        // LOAD SIGNALS
+        // =====================================================
+
+        async function loadSignals() {
+
+            const container =
+                document.getElementById(
+                    "signals"
+                );
+
+
+            container.textContent =
+                "Loading...";
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/signals"
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    container.textContent =
+                        "Unable to load signals.";
+
+                    return;
+
+                }
+
+
+                const signals =
+                    Array.isArray(
+                        data.signals
+                    )
+                        ? data.signals
+                        : [];
+
+
+                if (
+                    signals.length === 0
+                ) {
+
+                    container.textContent =
+                        "No confirmed signals available.";
+
+                    return;
+
+                }
+
+
+                container.innerHTML =
+                    "";
+
+
+                signals.forEach(
+                    function (signal) {
+
+                        const card =
+                            document.createElement(
+                                "article"
+                            );
+
+
+                        const symbol =
+                            String(
+                                signal.symbol
+                                || "UNKNOWN"
+                            ).toUpperCase();
+
+
+                        const direction =
+                            String(
+                                signal.direction
+                                || "NEUTRAL"
+                            ).toUpperCase();
+
+
+                        const confidence =
+                            Number(
+                                signal.confidence
+                                || 0
+                            );
+
+
+                        const entry =
+                            signal.entry
+                            ?? "-";
+
+
+                        const stopLoss =
+                            signal.stop_loss
+                            ?? "-";
+
+
+                        const tp1 =
+                            signal.tp1
+                            ?? "-";
+
+
+                        const tp2 =
+                            signal.tp2
+                            ?? "-";
+
+
+                        const tp3 =
+                            signal.tp3
+                            ?? "-";
+
+
+                        const riskReward =
+                            signal.risk_reward
+                            ?? "-";
+
+
+                        card.innerHTML = `
+
+                            <h3>
+                                ${symbol}
+                            </h3>
+
+                            <p>
+                                Direction:
+                                <strong>
+                                    ${direction}
+                                </strong>
+                            </p>
+
+                            <p>
+                                Confidence:
+                                <strong>
+                                    ${confidence.toFixed(2)}%
+                                </strong>
+                            </p>
+
+                            <p>
+                                Entry:
+                                ${entry}
+                            </p>
+
+                            <p>
+                                Stop Loss:
+                                ${stopLoss}
+                            </p>
+
+                            <p>
+                                TP1:
+                                ${tp1}
+                            </p>
+
+                            <p>
+                                TP2:
+                                ${tp2}
+                            </p>
+
+                            <p>
+                                TP3:
+                                ${tp3}
+                            </p>
+
+                            <p>
+                                Risk / Reward:
+                                ${riskReward}
+                            </p>
+
+                        `;
+
+
+                        container.appendChild(
+                            card
+                        );
+
+                    }
+                );
+
+            } catch (error) {
+
+                container.textContent =
+                    "Backend unavailable.";
+
+            }
+
+        }
+
+
+        loadSignals();
+
+    </script>
+
+</body>
+
+</html>
