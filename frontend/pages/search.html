@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        RR Trader — Market Search
+    </title>
+
+</head>
+
+
+<body>
+
+    <main>
+
+        <header>
+
+            <h1>
+                Market Search
+            </h1>
+
+            <p>
+                Search Binance Spot and Futures markets.
+            </p>
+
+        </header>
+
+
+        <section>
+
+            <label for="market">
+                Market
+            </label>
+
+            <select id="market">
+
+                <option value="futures">
+                    Binance Futures
+                </option>
+
+                <option value="spot">
+                    Binance Spot
+                </option>
+
+            </select>
+
+
+            <label for="symbol">
+                Coin / Symbol
+            </label>
+
+            <input
+                id="symbol"
+                type="text"
+                placeholder="BTC, ETH, SOL..."
+                autocomplete="off"
+            >
+
+
+            <button
+                type="button"
+                id="search-button"
+            >
+                Search
+            </button>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Search Results
+            </h2>
+
+            <div id="results">
+                Enter a coin symbol to search.
+            </div>
+
+        </section>
+
+
+        <section>
+
+            <h2>
+                Quick Actions
+            </h2>
+
+            <button
+                type="button"
+                id="analyze-button"
+                disabled
+            >
+                Analyze Selected Coin
+            </button>
+
+        </section>
+
+    </main>
+
+
+    <script>
+
+        let selectedSymbol = "";
+
+
+        // =====================================================
+        // SEARCH
+        // =====================================================
+
+        async function searchMarket() {
+
+            const input =
+                document.getElementById(
+                    "symbol"
+                );
+
+            const market =
+                document.getElementById(
+                    "market"
+                ).value;
+
+            const results =
+                document.getElementById(
+                    "results"
+                );
+
+            const analyzeButton =
+                document.getElementById(
+                    "analyze-button"
+                );
+
+
+            const query =
+                String(
+                    input.value || ""
+                )
+                .trim()
+                .toUpperCase();
+
+
+            if (!query) {
+
+                results.textContent =
+                    "Enter a coin symbol.";
+
+                analyzeButton.disabled =
+                    true;
+
+                selectedSymbol = "";
+
+                return;
+
+            }
+
+
+            results.textContent =
+                "Searching...";
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/search"
+                        + "?q="
+                        + encodeURIComponent(
+                            query
+                        )
+                        + "&market="
+                        + encodeURIComponent(
+                            market
+                        )
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    results.textContent =
+                        "Search failed.";
+
+                    analyzeButton.disabled =
+                        true;
+
+                    return;
+
+                }
+
+
+                const coins =
+                    Array.isArray(
+                        data.coins
+                    )
+                        ? data.coins
+                        : [];
+
+
+                if (
+                    coins.length === 0
+                ) {
+
+                    results.textContent =
+                        "No matching market found.";
+
+                    analyzeButton.disabled =
+                        true;
+
+                    return;
+
+                }
+
+
+                results.innerHTML =
+                    "";
+
+
+                coins.forEach(
+                    function (coin) {
+
+                        const button =
+                            document.createElement(
+                                "button"
+                            );
+
+
+                        button.type =
+                            "button";
+
+
+                        button.textContent =
+                            coin.symbol;
+
+
+                        button.addEventListener(
+                            "click",
+                            function () {
+
+                                selectedSymbol =
+                                    coin.symbol;
+
+
+                                results.innerHTML =
+                                    `
+                                    <strong>
+                                        ${coin.symbol}
+                                    </strong>
+                                    <p>
+                                        Market:
+                                        ${market}
+                                    </p>
+                                    `;
+
+
+                                analyzeButton.disabled =
+                                    false;
+
+                            }
+                        );
+
+
+                        results.appendChild(
+                            button
+                        );
+
+                    }
+                );
+
+            } catch (error) {
+
+                results.textContent =
+                    "Backend unavailable.";
+
+                analyzeButton.disabled =
+                    true;
+
+            }
+
+        }
+
+
+        // =====================================================
+        // ANALYZE
+        // =====================================================
+
+        async function analyzeSelected() {
+
+            if (!selectedSymbol) {
+                return;
+            }
+
+
+            const market =
+                document.getElementById(
+                    "market"
+                ).value;
+
+
+            const results =
+                document.getElementById(
+                    "results"
+                );
+
+
+            results.textContent =
+                "Loading analysis...";
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/analyze"
+                        + "?symbol="
+                        + encodeURIComponent(
+                            selectedSymbol
+                        )
+                        + "&market="
+                        + encodeURIComponent(
+                            market
+                        )
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (
+                    !response.ok ||
+                    !data.success
+                ) {
+
+                    results.textContent =
+                        "Analysis request failed.";
+
+                    return;
+
+                }
+
+
+                results.innerHTML =
+                    `
+                    <h3>
+                        ${data.symbol}
+                    </h3>
+
+                    <p>
+                        Market:
+                        ${data.market}
+                    </p>
+
+                    <p>
+                        Status:
+                        ${data.status}
+                    </p>
+
+                    <p>
+                        Core Timeframes:
+                        ${
+                            (
+                                data.core_timeframes
+                                || []
+                            ).join(
+                                " / "
+                            )
+                        }
+                    </p>
+                    `;
+
+            } catch (error) {
+
+                results.textContent =
+                    "Backend unavailable.";
+
+            }
+
+        }
+
+
+        // =====================================================
+        // EVENTS
+        // =====================================================
+
+        document
+            .getElementById(
+                "search-button"
+            )
+            .addEventListener(
+                "click",
+                searchMarket
+            );
+
+
+        document
+            .getElementById(
+                "analyze-button"
+            )
+            .addEventListener(
+                "click",
+                analyzeSelected
+            );
+
+
+        document
+            .getElementById(
+                "symbol"
+            )
+            .addEventListener(
+                "keydown",
+                function (event) {
+
+                    if (
+                        event.key ===
+                        "Enter"
+                    ) {
+
+                        searchMarket();
+
+                    }
+
+                }
+            );
+
+    </script>
+
+</body>
+
+</html>
