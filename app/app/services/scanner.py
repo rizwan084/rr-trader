@@ -6,7 +6,7 @@ import statistics
 
 import httpx
 
-from app.config import Settings
+from ..config import Settings
 
 
 class MarketScanner:
