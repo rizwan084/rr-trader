@@ -18,7 +18,7 @@ from app.app.services.trade_engine import default_trade_engine
 app = FastAPI(
     title="RR Trader Live Scanner",
     description="AI-powered Binance Spot and Futures market scanner",
-    version="4.3.0",
+    version="4.3.1",
 )
 
 
@@ -2494,7 +2494,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            5m â 4h
+            15m â 1h â 4h
         </span>
 
     </div>
@@ -2578,19 +2578,12 @@ DASHBOARD_HTML = r"""
 
                 <button
                     class="btn-secondary chart-interval active"
-                    data-interval="5"
-                    onclick="setChartInterval('5', this)"
-                >
-                    5m
-                </button>
-
-                <button
-                    class="btn-secondary chart-interval"
                     data-interval="15"
                     onclick="setChartInterval('15', this)"
                 >
                     15m
                 </button>
+
 
                 <button
                     class="btn-secondary chart-interval"
@@ -2814,8 +2807,8 @@ let searchTimer = null;
 let autoPollTimer = null;
 let selectedAnalysisData = null;
 let selectedCoin = "";
-let selectedMarket = "futures";
-let currentChartInterval = "5";
+let selectedMarket = document.getElementById("market").value || "futures";
+let currentChartInterval = "15";
 
 
 // =========================================================
@@ -2960,12 +2953,19 @@ function directionClass(
     direction
 ) {
 
-    return (
-        direction ===
-        "LONG"
-    )
-        ? "long-text"
-        : "short-text";
+    const normalized = String(
+        direction || ""
+    ).toUpperCase();
+
+    if (normalized === "LONG") {
+        return "long-text";
+    }
+
+    if (normalized === "SHORT") {
+        return "short-text";
+    }
+
+    return "updated";
 }
 
 
@@ -3226,7 +3226,7 @@ async function analyzeSearchCoin() {
             ${escapeHtml(
                 coin
             )}
-            Futures analysis...
+            ${escapeHtml(selectedMarket.toUpperCase())} analysis...
         </div>
         `;
 
@@ -3236,7 +3236,7 @@ async function analyzeSearchCoin() {
             await fetch(
                 `/api/analyze?symbol=${encodeURIComponent(
                     coin
-                )}&market=futures`
+                )}&market=${encodeURIComponent(selectedMarket)}`
             );
 
         const result =
@@ -3261,7 +3261,7 @@ async function analyzeSearchCoin() {
 
         selectedAnalysisData = data;
         selectedCoin = coin;
-        selectedMarket = "futures";
+        selectedMarket = document.getElementById("market").value || "futures";
 
         renderSelectedAnalysis(
             data
@@ -3307,7 +3307,6 @@ function renderSelectedAnalysis(
         {};
 
     const timeframeOrder = [
-        "5m",
         "15m",
         "1h",
         "4h"
@@ -5054,7 +5053,7 @@ async function generateBinancePost() {
             await fetch(
                 `/api/post/generate?symbol=${encodeURIComponent(
                     coin
-                )}&market=futures`
+                )}&market=${encodeURIComponent(selectedMarket)}`
             );
 
         const result =
@@ -5325,4 +5324,5 @@ window.addEventListener(
 async def dashboard():
 
     return HTMLResponse(
-        content
+        content=DASHBOARD_HTML
+    )
