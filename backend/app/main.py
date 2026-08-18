@@ -1,50 +1,23 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router as api_router
+from app.api.routes import router as main_router
 from app.api.trade_routes import router as trade_router
-from app.core.config import settings
+from app.api.ai_routes import router as ai_router
+from app.api.dashboard_routes import router as dashboard_router
 
+
+# =========================================================
+# RR TRADER APPLICATION
+# =========================================================
 
 app = FastAPI(
-    title="RR Trader",
+    title="RR Trader Live Crypto Trading Scanner",
     description=(
-        "AI-powered Binance Spot and Futures "
-        "trading intelligence platform."
+        "AI-powered crypto market scanner and trading analysis platform."
     ),
-    version=settings.app_version,
-)
-
-
-# =========================================================
-# CORS
-# =========================================================
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# =========================================================
-# API ROUTES
-# =========================================================
-
-app.include_router(
-    api_router,
-    prefix="/api",
-    tags=["RR Trader API"],
-)
-
-app.include_router(
-    trade_router,
-    prefix="/api",
-    tags=["Trade Engine"],
+    version="1.0.0",
 )
 
 
@@ -53,34 +26,75 @@ app.include_router(
 # =========================================================
 
 @app.get("/")
-async def root() -> dict:
-    return {
-        "app": settings.app_name,
-        "status": "online",
-        "version": settings.app_version,
-        "markets": [
-            "futures",
-            "spot",
-        ],
-        "core_timeframes": list(
-            settings.core_timeframes
-        ),
-        "dashboard": "/dashboard",
-        "message": "RR Trader backend is working",
-    }
-
-
-# =========================================================
-# DASHBOARD PLACEHOLDER
-# =========================================================
-
-@app.get("/dashboard")
-async def dashboard() -> dict:
+async def root():
     return {
         "success": True,
-        "status": "dashboard_foundation_ready",
-        "message": (
-            "RR Trader dashboard will be "
-            "built in the frontend phase."
-        ),
+        "app": "RR Trader",
+        "status": "online",
+        "version": "1.0.0",
     }
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+@app.get("/health")
+async def health():
+    return {
+        "success": True,
+        "app": "RR Trader",
+        "status": "healthy",
+    }
+
+
+# =========================================================
+# API ROUTES
+# =========================================================
+
+app.include_router(
+    main_router,
+    prefix="/api",
+)
+
+
+app.include_router(
+    trade_router,
+    prefix="/api",
+)
+
+
+app.include_router(
+    ai_router,
+    prefix="/api",
+)
+
+
+app.include_router(
+    dashboard_router,
+    prefix="/api",
+)
+
+
+# =========================================================
+# STARTUP
+# =========================================================
+
+@app.on_event("startup")
+async def startup_event():
+
+    print(
+        "RR Trader backend started successfully."
+    )
+
+
+# =========================================================
+# SHUTDOWN
+# =========================================================
+
+@app.on_event("shutdown")
+async def shutdown_event():
+
+    print(
+        "RR Trader backend shutting down."
+    )
