@@ -18,7 +18,7 @@ from app.app.services.trade_engine import default_trade_engine
 app = FastAPI(
     title="RR Trader Live Scanner",
     description="AI-powered Binance Spot and Futures market scanner",
-    version="4.3.1",
+    version="4.3.0",
 )
 
 
@@ -74,8 +74,8 @@ def _signal_sort_key(
 # =========================================================
 
 AUTO_SCAN_INTERVAL_SECONDS = 60
-AUTO_UNIVERSE_SIZE = 150
-AUTO_DEEP_ANALYSIS_SIZE = 1
+AUTO_UNIVERSE_SIZE = 0
+AUTO_DEEP_ANALYSIS_SIZE = 6
 
 _auto_scanner_task: Optional[
     asyncio.Task
@@ -201,21 +201,58 @@ def _is_valid_futures_usdt_ticker(
     )
 
 
+_AUTO_TICKER_CACHE_TTL = 45.0
+_auto_ticker_cache: Dict[str, Any] = {
+    "futures": None,
+    "futures_at": 0.0,
+}
+_auto_ticker_lock = asyncio.Lock()
+
+
+async def _get_futures_24h_tickers() -> List[Dict[str, Any]]:
+    """Return the full 24h ticker list with short-lived single-flight cache."""
+    now = asyncio.get_running_loop().time()
+    cached = _auto_ticker_cache.get("futures")
+    cached_at = float(_auto_ticker_cache.get("futures_at") or 0.0)
+
+    if isinstance(cached, list) and (now - cached_at) < _AUTO_TICKER_CACHE_TTL:
+        return cached
+
+    async with _auto_ticker_lock:
+        now = asyncio.get_running_loop().time()
+        cached = _auto_ticker_cache.get("futures")
+        cached_at = float(_auto_ticker_cache.get("futures_at") or 0.0)
+
+        if isinstance(cached, list) and (now - cached_at) < _AUTO_TICKER_CACHE_TTL:
+            return cached
+
+        try:
+            tickers = await _auto_binance.ticker_24h(market="futures")
+        except Exception:
+            # Preserve the last good universe during a transient Binance
+            # rate-limit/network event instead of wiping the dashboard.
+            return cached if isinstance(cached, list) else []
+
+        if isinstance(tickers, list):
+            _auto_ticker_cache["futures"] = tickers
+            _auto_ticker_cache["futures_at"] = now
+            return tickers
+
+        return cached if isinstance(cached, list) else []
+
+
 async def _build_candidate_universe() -> List[
     Dict[str, Any]
 ]:
     """
     Build a cheap Futures universe.
 
-    Up to 150 symbols are retained.
-
-    Only a small subset is deeply analyzed,
-    keeping Render memory usage under control.
+    All eligible Binance Futures USDT perpetual symbols are
+    retained in the cheap universe. Only the top configured
+    candidates are deeply analyzed.
     """
 
-    tickers = await _auto_binance.ticker_24h(
-        market="futures"
-    )
+    tickers = await _get_futures_24h_tickers()
 
     if not isinstance(
         tickers,
@@ -321,9 +358,9 @@ async def _auto_scan_cycle() -> None:
     """
     One background scan cycle.
 
-    1. Build a 150-symbol cheap universe.
-    2. Deep-analyze top 1 only.
-    3. Keep 90%+ signals.
+    1. Build the full eligible Futures universe cheaply.
+    2. Deep-analyze the top configured candidates only.
+    3. Keep strong LONG/SHORT signals.
     """
 
     _auto_state[
@@ -900,6 +937,8 @@ async def auto_scan_status() -> Dict[
                 "deep_analyzed"
             ]
         ),
+        "universe_mode": "FULL_MARKET",
+        "deep_analysis_limit": AUTO_DEEP_ANALYSIS_SIZE,
         "signals_count": len(
             _auto_state[
                 "signals"
@@ -975,7 +1014,7 @@ async def auto_candidates(
     limit: int = Query(
         default=20,
         ge=1,
-        le=150,
+        le=5000,
     ),
 ) -> Dict[
     str,
@@ -2353,7 +2392,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            Live 150-coin universe
+            Live full Futures universe
         </span>
 
     </div>
@@ -2494,7 +2533,7 @@ DASHBOARD_HTML = r"""
         </h2>
 
         <span>
-            15m â 1h â 4h
+            5m â 4h
         </span>
 
     </div>
@@ -2577,13 +2616,12 @@ DASHBOARD_HTML = r"""
             <div class="chart-intervals">
 
                 <button
-                    class="btn-secondary chart-interval active"
+                    class="btn-secondary chart-interval"
                     data-interval="15"
                     onclick="setChartInterval('15', this)"
                 >
                     15m
                 </button>
-
 
                 <button
                     class="btn-secondary chart-interval"
@@ -2807,7 +2845,7 @@ let searchTimer = null;
 let autoPollTimer = null;
 let selectedAnalysisData = null;
 let selectedCoin = "";
-let selectedMarket = document.getElementById("market").value || "futures";
+let selectedMarket = "futures";
 let currentChartInterval = "15";
 
 
@@ -2953,19 +2991,12 @@ function directionClass(
     direction
 ) {
 
-    const normalized = String(
-        direction || ""
-    ).toUpperCase();
-
-    if (normalized === "LONG") {
-        return "long-text";
-    }
-
-    if (normalized === "SHORT") {
-        return "short-text";
-    }
-
-    return "updated";
+    return (
+        direction ===
+        "LONG"
+    )
+        ? "long-text"
+        : "short-text";
 }
 
 
@@ -3226,7 +3257,7 @@ async function analyzeSearchCoin() {
             ${escapeHtml(
                 coin
             )}
-            ${escapeHtml(selectedMarket.toUpperCase())} analysis...
+            Futures analysis...
         </div>
         `;
 
@@ -3236,7 +3267,7 @@ async function analyzeSearchCoin() {
             await fetch(
                 `/api/analyze?symbol=${encodeURIComponent(
                     coin
-                )}&market=${encodeURIComponent(selectedMarket)}`
+                )}&market=futures`
             );
 
         const result =
@@ -3261,7 +3292,7 @@ async function analyzeSearchCoin() {
 
         selectedAnalysisData = data;
         selectedCoin = coin;
-        selectedMarket = document.getElementById("market").value || "futures";
+        selectedMarket = "futures";
 
         renderSelectedAnalysis(
             data
@@ -5053,7 +5084,7 @@ async function generateBinancePost() {
             await fetch(
                 `/api/post/generate?symbol=${encodeURIComponent(
                     coin
-                )}&market=${encodeURIComponent(selectedMarket)}`
+                )}&market=futures`
             );
 
         const result =
