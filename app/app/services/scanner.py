@@ -44,38 +44,26 @@ class MarketScanner:
     # TIMEFRAMES
     # =========================================================
 
+    # Primary decision timeframes.
+    # Keep the production scanner focused on the three
+    # timeframes requested for RR Trader: execution (15m),
+    # confirmation (1h), and higher-timeframe trend (4h).
     TIMEFRAMES = (
-        "1m",
-        "2m",
-        "3m",
-        "5m",
         "15m",
-        "30m",
-        "45m",
         "1h",
         "4h",
     )
 
     NATIVE_TIMEFRAMES = (
-        "1m",
-        "3m",
-        "5m",
         "15m",
-        "30m",
         "1h",
         "4h",
     )
 
     TIMEFRAME_WEIGHTS: Dict[str, float] = {
-        "1m": 0.04,
-        "2m": 0.04,
-        "3m": 0.05,
-        "5m": 0.07,
-        "15m": 0.16,
-        "30m": 0.16,
-        "45m": 0.14,
-        "1h": 0.17,
-        "4h": 0.17,
+        "15m": 0.40,
+        "1h": 0.30,
+        "4h": 0.30,
     }
 
     # =========================================================
@@ -120,7 +108,7 @@ class MarketScanner:
         self.request_semaphore = asyncio.Semaphore(4)
 
         # Maximum symbols analyzed at one time.
-        self.symbol_semaphore = asyncio.Semaphore(2)
+        self.symbol_semaphore = asyncio.Semaphore(3)
 
         # Advanced market intelligence.
         self.binance_client = BinanceClient(
@@ -2519,12 +2507,12 @@ class MarketScanner:
         )
 
         # -----------------------------------------------------
-        # Fetch native timeframes.
-        # Request semaphore prevents
-        # too many simultaneous HTTP requests.
+        # Fetch only the three production timeframes in parallel.
+        # This removes unnecessary candle requests for 1m/2m/3m/5m/
+        # 30m/45m while preserving the required 15m/1h/4h model.
         # -----------------------------------------------------
 
-        native_tasks = {
+        timeframe_tasks = {
             timeframe: asyncio.create_task(
                 self.get_timeframe_klines(
                     symbol=symbol,
@@ -2533,93 +2521,21 @@ class MarketScanner:
                     limit=requested_limit,
                 )
             )
-            for timeframe in (
-                self.NATIVE_TIMEFRAMES
-            )
+            for timeframe in self.NATIVE_TIMEFRAMES
         }
-
-        native_results: Dict[
-            str,
-            List[List[Any]],
-        ] = {}
-
-        for timeframe, task in (
-            native_tasks.items()
-        ):
-
-            try:
-
-                native_results[
-                    timeframe
-                ] = await task
-
-            except Exception:
-
-                native_results[
-                    timeframe
-                ] = []
-
-        # Release task references.
-        del native_tasks
-
-        # -----------------------------------------------------
-        # Build 2m and 45m.
-        # -----------------------------------------------------
-
-        one_minute = (
-            native_results.get(
-                "1m",
-                []
-            )
-        )
-
-        fifteen_minute = (
-            native_results.get(
-                "15m",
-                []
-            )
-        )
 
         timeframe_klines: Dict[
             str,
             List[List[Any]],
         ] = {}
 
-        for timeframe in (
-            "1m",
-            "3m",
-            "5m",
-            "15m",
-            "30m",
-            "1h",
-            "4h",
-        ):
+        for timeframe, task in timeframe_tasks.items():
+            try:
+                timeframe_klines[timeframe] = await task
+            except Exception:
+                timeframe_klines[timeframe] = []
 
-            timeframe_klines[
-                timeframe
-            ] = native_results.get(
-                timeframe,
-                [],
-            )
-
-        timeframe_klines[
-            "2m"
-        ] = self.aggregate_klines(
-            one_minute,
-            2,
-        )[-requested_limit:]
-
-        timeframe_klines[
-            "45m"
-        ] = self.aggregate_klines(
-            fifteen_minute,
-            3,
-        )[-requested_limit:]
-
-        # Release raw native container.
-        del native_results
-        del one_minute
-        del fifteen_minute
+        del timeframe_tasks
 
         # -----------------------------------------------------
         # Analyze timeframe data.
@@ -3139,65 +3055,50 @@ class MarketScanner:
             Dict[str, Any]
         ] = []
 
-        batch_size = 2
+        # Run candidate scans concurrently while the symbol semaphore
+        # keeps Binance/API pressure bounded. This replaces the old
+        # sequential batch-of-two loop.
+        async def scan_one(
+            ticker: Dict[str, Any],
+        ) -> Dict[str, Any]:
 
-        for start in range(
-            0,
-            len(candidates),
-            batch_size,
-        ):
-
-            batch = candidates[
-                start:
-                start + batch_size
-            ]
-
-            for ticker in batch:
-
-                symbol = (
-                    self.normalize_symbol(
-                        str(
-                            ticker.get(
-                                "symbol",
-                                "",
-                            )
-                        )
+            symbol = self.normalize_symbol(
+                str(
+                    ticker.get(
+                        "symbol",
+                        "",
                     )
                 )
+            )
 
-                async with (
-                    self.symbol_semaphore
-                ):
-
-                    try:
-
-                        result = (
-                            await self.scan_symbol(
-                                symbol=symbol,
-                                market=market,
-                                interval=interval,
-                                limit=limit,
-                            )
-                        )
-
-                    except Exception as exc:
-
-                        result = {
-                            "success": False,
-                            "symbol": symbol,
-                            "market": market,
-                            "direction": "ERROR",
-                            "confidence": 0,
-                            "publishable": False,
-                            "error": str(exc),
-                        }
-
-                    results.append(
-                        result
+            async with self.symbol_semaphore:
+                try:
+                    return await self.scan_symbol(
+                        symbol=symbol,
+                        market=market,
+                        interval=interval,
+                        limit=limit,
                     )
+                except Exception as exc:
+                    return {
+                        "success": False,
+                        "symbol": symbol,
+                        "market": market,
+                        "direction": "ERROR",
+                        "confidence": 0,
+                        "publishable": False,
+                        "error": str(exc),
+                    }
 
-            # Explicitly release references.
-            del batch
+        tasks = [
+            scan_one(ticker)
+            for ticker in candidates
+        ]
+
+        if tasks:
+            results = await asyncio.gather(
+                *tasks
+            )
 
         # -----------------------------------------------------
         # SORT
