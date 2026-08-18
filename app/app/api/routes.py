@@ -11,8 +11,13 @@ from fastapi import (
 from app.app.services.post_generator import (
     PostGenerator,
 )
+
 from app.app.services.scanner import (
     MarketScanner,
+)
+
+from app.app.services.trade_engine import (
+    default_trade_engine,
 )
 
 
@@ -215,7 +220,7 @@ async def api_root() -> Dict[str, Any]:
         "success": True,
         "app": "RR Trader",
         "status": "online",
-        "version": "4.1.0",
+        "version": "4.2.0",
         "markets": [
             "futures",
             "spot",
@@ -233,6 +238,15 @@ async def api_root() -> Dict[str, Any]:
             "/api/analyze",
             "/api/signals",
             "/api/post/generate",
+            "/api/trade/status",
+            "/api/trade/config",
+            "/api/trade/evaluate",
+            "/api/trade/paper/open",
+            "/api/trade/positions",
+            "/api/trade/history",
+            "/api/trade/positions/update",
+            "/api/trade/positions/close",
+            "/api/trade/reset-daily",
         ],
         "message": (
             "RR Trader API is running"
@@ -318,8 +332,7 @@ async def scan_market(
             market=market,
             max_candidates=(
                 max_candidates
-                if normalized_symbol
-                is None
+                if normalized_symbol is None
                 else None
             ),
         )
@@ -530,14 +543,10 @@ async def high_confidence_signals(
                     )
 
                 if confidence >= 99:
-                    level = (
-                        "EXTREME"
-                    )
+                    level = "EXTREME"
 
                 elif confidence >= 95:
-                    level = (
-                        "VERY HIGH"
-                    )
+                    level = "VERY HIGH"
 
                 elif confidence >= 90:
                     level = "HIGH"
@@ -663,22 +672,9 @@ async def generate_post(
     ),
     market: str = Query(
         default="futures",
-        description=(
-            "futures or spot"
-        ),
+        description="futures or spot",
     ),
 ) -> Dict[str, Any]:
-    """
-    Analyze the selected coin and generate
-    the agreed RR Trader community post.
-
-    IMPORTANT:
-
-    The post generator does not invent the
-    trading direction or levels.
-
-    It uses the actual MarketScanner result.
-    """
 
     market = _validate_market(
         market
@@ -737,14 +733,12 @@ async def generate_post(
                 status_code=422,
                 detail=(
                     f"{symbol[:-4]} currently "
-                    f"does not have a valid "
-                    f"LONG/SHORT setup."
+                    "does not have a valid "
+                    "LONG/SHORT setup."
                 ),
             )
 
-        generator = (
-            PostGenerator()
-        )
+        generator = PostGenerator()
 
         generated = generator.generate(
             analysis
@@ -775,6 +769,235 @@ async def generate_post(
                 f"{str(exc)}"
             ),
         ) from exc
+
+
+# =========================================================
+# TRADE ENGINE STATUS
+# =========================================================
+
+@router.get("/trade/status")
+async def trade_status() -> Dict[str, Any]:
+
+    return {
+        "success": True,
+        "engine": (
+            default_trade_engine.get_status()
+        ),
+        "config": (
+            default_trade_engine.get_config()
+        ),
+    }
+
+
+# =========================================================
+# TRADE ENGINE CONFIG
+# =========================================================
+
+@router.get("/trade/config")
+async def trade_config() -> Dict[str, Any]:
+
+    return {
+        "success": True,
+        "config": (
+            default_trade_engine.get_config()
+        ),
+    }
+
+
+# =========================================================
+# EVALUATE SIGNAL
+# =========================================================
+
+@router.post("/trade/evaluate")
+async def evaluate_trade(
+    signal: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    try:
+
+        result = (
+            default_trade_engine
+            .evaluate_trade(
+                signal
+            )
+        )
+
+        return {
+            "success": True,
+            "result": result,
+        }
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Trade evaluation error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# OPEN PAPER TRADE
+# =========================================================
+
+@router.post("/trade/paper/open")
+async def open_paper_trade(
+    signal: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    try:
+
+        result = (
+            default_trade_engine
+            .open_paper_trade(
+                signal
+            )
+        )
+
+        return result
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Paper trade error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# OPEN POSITIONS
+# =========================================================
+
+@router.get("/trade/positions")
+async def trade_positions() -> Dict[str, Any]:
+
+    positions = (
+        default_trade_engine
+        .get_open_positions()
+    )
+
+    return {
+        "success": True,
+        "count": len(
+            positions
+        ),
+        "positions": positions,
+    }
+
+
+# =========================================================
+# CLOSED TRADE HISTORY
+# =========================================================
+
+@router.get("/trade/history")
+async def trade_history(
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+    ),
+) -> Dict[str, Any]:
+
+    history = (
+        default_trade_engine
+        .get_closed_trades()
+    )
+
+    return {
+        "success": True,
+        "count": len(
+            history
+        ),
+        "trades": history[
+            -limit:
+        ],
+    }
+
+
+# =========================================================
+# UPDATE PAPER POSITION
+# =========================================================
+
+@router.post("/trade/positions/update")
+async def update_position(
+    position_id: str,
+    current_price: float,
+) -> Dict[str, Any]:
+
+    try:
+
+        result = (
+            default_trade_engine
+            .update_position(
+                position_id=position_id,
+                current_price=current_price,
+            )
+        )
+
+        return result
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Position update error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# CLOSE PAPER POSITION
+# =========================================================
+
+@router.post("/trade/positions/close")
+async def close_position(
+    position_id: str,
+    exit_price: float,
+    reason: str = "MANUAL",
+) -> Dict[str, Any]:
+
+    try:
+
+        result = (
+            default_trade_engine
+            .close_position(
+                position_id=position_id,
+                exit_price=exit_price,
+                reason=reason,
+            )
+        )
+
+        return result
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Position close error: "
+                f"{str(exc)}"
+            ),
+        ) from exc
+
+
+# =========================================================
+# RESET DAILY RISK
+# =========================================================
+
+@router.post("/trade/reset-daily")
+async def reset_daily() -> Dict[str, Any]:
+
+    return (
+        default_trade_engine
+        .reset_daily_stats()
+    )
 
 
 # =========================================================
