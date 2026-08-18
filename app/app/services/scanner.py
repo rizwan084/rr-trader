@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-import asyncio
 import statistics
 
 import httpx
 
-from app.config import Settings
+# IMPORTANT:
+# Project structure:
+# app/
+#   app/
+#     config.py
+#     services/
+#       scanner.py
+#
+# Isliye scanner.py se config ko parent package se import karna hai.
+from ..config import Settings
 
 
 class MarketScanner:
@@ -21,7 +29,6 @@ class MarketScanner:
     - EMA20 / EMA50
     - Momentum
     - Volume confirmation
-    - Liquidity
     - LONG / SHORT scoring
     - Single-symbol analysis
     """
@@ -29,11 +36,21 @@ class MarketScanner:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or Settings()
 
-        self.futures_url = self.settings.binance_futures_url.rstrip("/")
-        self.spot_url = self.settings.binance_spot_url.rstrip("/")
+        self.futures_url = (
+            self.settings.binance_futures_url.rstrip("/")
+        )
 
-        self.timeout = float(self.settings.request_timeout)
-        self.min_confidence = int(self.settings.min_confidence)
+        self.spot_url = (
+            self.settings.binance_spot_url.rstrip("/")
+        )
+
+        self.timeout = float(
+            self.settings.request_timeout
+        )
+
+        self.min_confidence = int(
+            self.settings.min_confidence
+        )
 
     # =========================================================
     # HTTP
@@ -44,11 +61,10 @@ class MarketScanner:
         url: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
-
         async with httpx.AsyncClient(
             timeout=self.timeout,
             headers={
-                "User-Agent": "RR-Trader/1.0"
+                "User-Agent": "RR-Trader/2.0",
             },
         ) as client:
 
@@ -62,11 +78,10 @@ class MarketScanner:
             return response.json()
 
     # =========================================================
-    # URL
+    # BASE URL
     # =========================================================
 
     def _base_url(self, market: str) -> str:
-
         market = market.lower().strip()
 
         if market == "spot":
@@ -134,7 +149,9 @@ class MarketScanner:
 
         data = await self._get(
             url,
-            params={"symbol": symbol},
+            params={
+                "symbol": symbol,
+            },
         )
 
         if not isinstance(data, dict):
@@ -153,7 +170,7 @@ class MarketScanner:
         symbol: str,
         market: str = "futures",
         interval: str = "15m",
-        limit: int = 100,
+        limit: int = 200,
     ) -> List[List[Any]]:
 
         market = market.lower().strip()
@@ -170,15 +187,13 @@ class MarketScanner:
                 "market must be 'futures' or 'spot'"
             )
 
-        params = {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit,
-        }
-
         data = await self._get(
             url,
-            params=params,
+            params={
+                "symbol": symbol,
+                "interval": interval,
+                "limit": limit,
+            },
         )
 
         if not isinstance(data, list):
@@ -200,16 +215,6 @@ class MarketScanner:
         ).upper()
 
         if not symbol.endswith("USDT"):
-            return False
-
-        blocked_exact = {
-            "UPUSDT",
-            "DOWNUSDT",
-            "BULLUSDT",
-            "BEARUSDT",
-        }
-
-        if symbol in blocked_exact:
             return False
 
         blocked_words = (
@@ -260,23 +265,84 @@ class MarketScanner:
         return float(ema_value)
 
     # =========================================================
-    # CANDLE ANALYSIS
+    # ATR
     # =========================================================
 
     @staticmethod
+    def atr(
+        klines: List[List[Any]],
+        period: int = 14,
+    ) -> float:
+
+        if len(klines) < period + 1:
+            return 0.0
+
+        try:
+            highs = [
+                float(k[2])
+                for k in klines
+            ]
+
+            lows = [
+                float(k[3])
+                for k in klines
+            ]
+
+            closes = [
+                float(k[4])
+                for k in klines
+            ]
+
+        except (
+            ValueError,
+            TypeError,
+            IndexError,
+        ):
+            return 0.0
+
+        true_ranges: List[float] = []
+
+        for i in range(1, len(klines)):
+            high = highs[i]
+            low = lows[i]
+            previous_close = closes[i - 1]
+
+            true_range = max(
+                high - low,
+                abs(high - previous_close),
+                abs(low - previous_close),
+            )
+
+            true_ranges.append(
+                true_range
+            )
+
+        if len(true_ranges) < period:
+            return 0.0
+
+        return float(
+            statistics.mean(
+                true_ranges[-period:]
+            )
+        )
+
+    # =========================================================
+    # CANDLE ANALYSIS
+    # =========================================================
+
+    @classmethod
     def analyze_candles(
+        cls,
         klines: List[List[Any]],
     ) -> Dict[str, Any]:
 
         if len(klines) < 50:
-
             return {
                 "valid": False,
                 "reason": "not_enough_candles",
             }
 
         try:
-
             closes = [
                 float(k[4])
                 for k in klines
@@ -302,7 +368,6 @@ class MarketScanner:
             TypeError,
             IndexError,
         ):
-
             return {
                 "valid": False,
                 "reason": "invalid_candle_data",
@@ -310,12 +375,12 @@ class MarketScanner:
 
         price = closes[-1]
 
-        ema20 = MarketScanner.ema(
+        ema20 = cls.ema(
             closes,
             20,
         )
 
-        ema50 = MarketScanner.ema(
+        ema50 = cls.ema(
             closes,
             50,
         )
@@ -323,301 +388,133 @@ class MarketScanner:
         previous_price = closes[-6]
 
         if previous_price == 0:
-
-            momentum = 0.0
-
+            momentum_pct = 0.0
         else:
-
-            momentum = (
-                (
-                    price - previous_price
-                )
+            momentum_pct = (
+                (price - previous_price)
                 / previous_price
             ) * 100
 
-        recent_volumes = volumes[-20:]
-
-        avg_volume = (
-            statistics.mean(
-                recent_volumes
-            )
-            if recent_volumes
-            else 0.0
+        recent_volume = statistics.mean(
+            volumes[-10:]
         )
 
-        current_volume = volumes[-1]
+        previous_volume = statistics.mean(
+            volumes[-30:-10]
+        )
 
-        if avg_volume > 0:
+        volume_ratio = (
+            recent_volume / previous_volume
+            if previous_volume > 0
+            else 1.0
+        )
 
-            volume_ratio = (
-                current_volume
-                / avg_volume
+        if (
+            price > ema20
+            and ema20 > ema50
+        ):
+            direction = "LONG"
+
+        elif (
+            price < ema20
+            and ema20 < ema50
+        ):
+            direction = "SHORT"
+
+        else:
+            direction = "WAIT"
+
+        confidence = 50.0
+        reasons: List[str] = []
+
+        if direction == "LONG":
+
+            confidence += 15
+
+            reasons.append(
+                "Price is above EMA20 and EMA50"
             )
+
+            if momentum_pct > 0:
+                confidence += 10
+                reasons.append(
+                    "Positive momentum"
+                )
+
+            if volume_ratio > 1.2:
+                confidence += 8
+                reasons.append(
+                    "Volume confirmation"
+                )
+
+        elif direction == "SHORT":
+
+            confidence += 15
+
+            reasons.append(
+                "Price is below EMA20 and EMA50"
+            )
+
+            if momentum_pct < 0:
+                confidence += 10
+                reasons.append(
+                    "Negative momentum"
+                )
+
+            if volume_ratio > 1.2:
+                confidence += 8
+                reasons.append(
+                    "Volume confirmation"
+                )
 
         else:
 
-            volume_ratio = 1.0
+            reasons.append(
+                "EMA structure is mixed"
+            )
 
-        recent_high = max(
-            highs[-20:]
-        )
-
-        recent_low = min(
-            lows[-20:]
-        )
-
-        bullish = (
-            price > ema20
-            and ema20 > ema50
-            and momentum > 0
-        )
-
-        bearish = (
-            price < ema20
-            and ema20 < ema50
-            and momentum < 0
+        confidence = round(
+            max(
+                0,
+                min(
+                    confidence,
+                    100,
+                ),
+            ),
+            2,
         )
 
         return {
             "valid": True,
             "price": price,
-            "ema20": ema20,
-            "ema50": ema50,
-            "momentum": momentum,
-            "volume_ratio": volume_ratio,
-            "recent_high": recent_high,
-            "recent_low": recent_low,
-            "bullish": bullish,
-            "bearish": bearish,
-        }
-
-    # =========================================================
-    # SCORE
-    # =========================================================
-
-    @staticmethod
-    def calculate_score(
-        ticker: Dict[str, Any],
-        analysis: Dict[str, Any],
-    ) -> Dict[str, Any]:
-
-        if not analysis.get("valid"):
-
-            return {
-                "direction": "NEUTRAL",
-                "confidence": 0,
-                "reasons": [],
-            }
-
-        try:
-
-            price_change = float(
-                ticker.get(
-                    "priceChangePercent",
-                    0,
-                )
-            )
-
-            quote_volume = float(
-                ticker.get(
-                    "quoteVolume",
-                    0,
-                )
-            )
-
-        except (
-            ValueError,
-            TypeError,
-        ):
-
-            price_change = 0.0
-            quote_volume = 0.0
-
-        momentum = float(
-            analysis.get(
-                "momentum",
-                0,
-            )
-        )
-
-        volume_ratio = float(
-            analysis.get(
-                "volume_ratio",
-                1,
-            )
-        )
-
-        bullish = bool(
-            analysis.get("bullish")
-        )
-
-        bearish = bool(
-            analysis.get("bearish")
-        )
-
-        long_score = 0
-        short_score = 0
-
-        long_reasons: List[str] = []
-        short_reasons: List[str] = []
-
-        # -----------------------------------------------------
-        # EMA TREND
-        # -----------------------------------------------------
-
-        if bullish:
-
-            long_score += 30
-
-            long_reasons.append(
-                "EMA bullish trend"
-            )
-
-        if bearish:
-
-            short_score += 30
-
-            short_reasons.append(
-                "EMA bearish trend"
-            )
-
-        # -----------------------------------------------------
-        # MOMENTUM
-        # -----------------------------------------------------
-
-        if momentum > 0:
-
-            long_score += 20
-
-            long_reasons.append(
-                "positive momentum"
-            )
-
-        elif momentum < 0:
-
-            short_score += 20
-
-            short_reasons.append(
-                "negative momentum"
-            )
-
-        # -----------------------------------------------------
-        # 24H MOVE
-        # -----------------------------------------------------
-
-        if price_change > 0:
-
-            long_score += 15
-
-            long_reasons.append(
-                "positive 24h move"
-            )
-
-        elif price_change < 0:
-
-            short_score += 15
-
-            short_reasons.append(
-                "negative 24h move"
-            )
-
-        # -----------------------------------------------------
-        # VOLUME
-        # -----------------------------------------------------
-
-        if volume_ratio >= 1.20:
-
-            if momentum > 0:
-
-                long_score += 20
-
-                long_reasons.append(
-                    "volume confirmation"
-                )
-
-            elif momentum < 0:
-
-                short_score += 20
-
-                short_reasons.append(
-                    "volume confirmation"
-                )
-
-        # -----------------------------------------------------
-        # LIQUIDITY
-        # -----------------------------------------------------
-
-        if quote_volume >= 10_000_000:
-
-            if momentum > 0:
-
-                long_score += 15
-
-                long_reasons.append(
-                    "high liquidity"
-                )
-
-            elif momentum < 0:
-
-                short_score += 15
-
-                short_reasons.append(
-                    "high liquidity"
-                )
-
-        # -----------------------------------------------------
-        # FINAL DIRECTION
-        # -----------------------------------------------------
-
-        if long_score > short_score:
-
-            direction = "LONG"
-
-            confidence = min(
-                long_score,
-                100,
-            )
-
-            reasons = long_reasons
-
-        elif short_score > long_score:
-
-            direction = "SHORT"
-
-            confidence = min(
-                short_score,
-                100,
-            )
-
-            reasons = short_reasons
-
-        else:
-
-            direction = "NEUTRAL"
-
-            confidence = 0
-
-            reasons = []
-
-        return {
+            "ema20": round(ema20, 8),
+            "ema50": round(ema50, 8),
+            "momentum_pct": round(
+                momentum_pct,
+                4,
+            ),
+            "volume_ratio": round(
+                volume_ratio,
+                4,
+            ),
             "direction": direction,
             "confidence": confidence,
             "reasons": reasons,
+            "atr": round(
+                cls.atr(klines),
+                8,
+            ),
         }
 
     # =========================================================
-    # SINGLE SYMBOL ANALYSIS
+    # SYMBOL ANALYSIS
     # =========================================================
 
-    async def scan_symbol(
+    async def analyze_symbol(
         self,
         symbol: str,
         market: str = "futures",
-        interval: str = "15m",
-        limit: int = 100,
     ) -> Dict[str, Any]:
-
-        market = market.lower().strip()
 
         symbol = (
             symbol.upper()
@@ -625,239 +522,410 @@ class MarketScanner:
             .strip()
         )
 
-        if market not in {
-            "futures",
-            "spot",
-        }:
-
-            raise ValueError(
-                "market must be 'futures' or 'spot'"
-            )
+        market = market.lower().strip()
 
         if not symbol.endswith("USDT"):
-
             raise ValueError(
-                "Only USDT pairs are supported."
+                "Only USDT trading pairs are supported."
             )
 
-        # Get ticker + candles
-        ticker, klines = await asyncio.gather(
-            self.get_ticker(
-                symbol,
-                market,
-            ),
-            self.get_klines(
-                symbol,
-                market,
-                interval,
-                limit,
-            ),
+        ticker = await self.get_ticker(
+            symbol=symbol,
+            market=market,
         )
 
-        analysis = self.analyze_candles(
+        klines = await self.get_klines(
+            symbol=symbol,
+            market=market,
+            interval=self.settings.default_interval,
+            limit=self.settings.default_candle_limit,
+        )
+
+        candle_analysis = self.analyze_candles(
             klines
         )
 
-        score = self.calculate_score(
-            ticker,
-            analysis,
+        if not candle_analysis.get("valid"):
+            return {
+                "success": False,
+                "symbol": symbol,
+                "market": market,
+                "reason": candle_analysis.get(
+                    "reason",
+                    "analysis_failed",
+                ),
+            }
+
+        price = float(
+            ticker.get(
+                "lastPrice",
+                candle_analysis["price"],
+            )
         )
+
+        direction = candle_analysis[
+            "direction"
+        ]
+
+        confidence = float(
+            candle_analysis["confidence"]
+        )
+
+        atr_value = float(
+            candle_analysis.get(
+                "atr",
+                0,
+            )
+        )
+
+        if atr_value <= 0:
+            atr_value = price * 0.01
+
+        entry = price
+
+        if direction == "LONG":
+
+            stop_loss = entry - (
+                atr_value * 1.2
+            )
+
+            risk = entry - stop_loss
+
+            tp1 = entry + (
+                risk * 1.5
+            )
+
+            tp2 = entry + (
+                risk * 2.5
+            )
+
+            tp3 = entry + (
+                risk * 3.5
+            )
+
+        elif direction == "SHORT":
+
+            stop_loss = entry + (
+                atr_value * 1.2
+            )
+
+            risk = stop_loss - entry
+
+            tp1 = entry - (
+                risk * 1.5
+            )
+
+            tp2 = entry - (
+                risk * 2.5
+            )
+
+            tp3 = entry - (
+                risk * 3.5
+            )
+
+        else:
+
+            entry = None
+            stop_loss = None
+            tp1 = None
+            tp2 = None
+            tp3 = None
+            risk = 0.0
+
+        if risk > 0:
+            risk_reward = abs(
+                tp2 - entry
+            ) / risk
+        else:
+            risk_reward = 0.0
+
+        if risk_reward >= 3:
+            confidence += 4
+
+        elif risk_reward >= 2:
+            confidence += 2
+
+        confidence = round(
+            max(
+                0,
+                min(
+                    confidence,
+                    100,
+                ),
+            ),
+            2,
+        )
+
+        if (
+            direction in {
+                "LONG",
+                "SHORT",
+            }
+            and confidence
+            >= self.min_confidence
+        ):
+            signal = direction
+
+        elif direction in {
+            "LONG",
+            "SHORT",
+        }:
+            signal = "WATCH"
+
+        else:
+            signal = "WAIT"
+
+        if direction == "LONG":
+
+            thesis = (
+                "Bullish EMA structure with "
+                "supportive momentum and "
+                "volume conditions."
+            )
+
+        elif direction == "SHORT":
+
+            thesis = (
+                "Bearish EMA structure with "
+                "negative momentum and "
+                "volume conditions."
+            )
+
+        else:
+
+            thesis = (
+                "Market structure is mixed; "
+                "wait for stronger confirmation."
+            )
 
         return {
             "success": True,
             "symbol": symbol,
             "market": market,
-            "interval": interval,
-            "price": float(
-                ticker.get(
-                    "lastPrice",
-                    0,
-                )
+            "direction": direction,
+            "signal": signal,
+            "confidence": confidence,
+            "price": price,
+            "entry": entry,
+            "stop_loss": stop_loss,
+            "tp1": tp1,
+            "tp2": tp2,
+            "tp3": tp3,
+            "risk_reward": round(
+                risk_reward,
+                2,
             ),
-            "price_change_24h": float(
-                ticker.get(
-                    "priceChangePercent",
-                    0,
-                )
-            ),
-            "quote_volume_24h": float(
-                ticker.get(
-                    "quoteVolume",
-                    0,
-                )
-            ),
-            "direction": score[
-                "direction"
-            ],
-            "confidence": score[
-                "confidence"
-            ],
-            "publishable": (
-                score["confidence"]
-                >= self.min_confidence
-                and score["direction"]
-                in ("LONG", "SHORT")
-            ),
-            "reasons": score[
-                "reasons"
-            ],
-            "analysis": analysis,
+            "thesis": thesis,
+            "technical": candle_analysis,
+            "ticker": {
+                "last_price": ticker.get(
+                    "lastPrice"
+                ),
+                "price_change_percent": ticker.get(
+                    "priceChangePercent"
+                ),
+                "volume": ticker.get(
+                    "volume"
+                ),
+                "quote_volume": ticker.get(
+                    "quoteVolume"
+                ),
+            },
         }
 
     # =========================================================
-    # GENERAL MARKET SCAN
+    # CANDIDATES
     # =========================================================
 
-    async def scan(
+    async def get_candidates(
         self,
         market: str = "futures",
-        interval: str = "15m",
-        limit: int = 100,
-        max_candidates: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        limit: Optional[int] = None,
+    ) -> List[str]:
 
-        market = market.lower().strip()
-
-        if market not in {
-            "futures",
-            "spot",
-        }:
-
-            raise ValueError(
-                "market must be 'futures' or 'spot'"
-            )
+        if limit is None:
+            limit = self.settings.auto_scan_coins
 
         tickers = await self.get_24h_tickers(
             market
         )
 
-        valid = [
-            ticker
-            for ticker in tickers
-            if self.is_valid_usdt_pair(
+        candidates = []
+
+        for ticker in tickers:
+
+            if not self.is_valid_usdt_pair(
                 ticker
-            )
-        ]
-
-        # Highest liquidity first
-        valid.sort(
-            key=lambda x: float(
-                x.get(
-                    "quoteVolume",
-                    0,
-                )
-            ),
-            reverse=True,
-        )
-
-        scan_limit = (
-            max_candidates
-            if max_candidates is not None
-            else int(
-                self.settings.auto_scan_coins
-            )
-        )
-
-        candidates = valid[
-            :scan_limit
-        ]
-
-        # -----------------------------------------------------
-        # Analyze candidates concurrently
-        # -----------------------------------------------------
-
-        async def analyze_ticker(
-            ticker: Dict[str, Any],
-        ) -> Dict[str, Any]:
+            ):
+                continue
 
             symbol = str(
                 ticker.get(
                     "symbol",
                     "",
                 )
+            ).upper()
+
+            if not symbol:
+                continue
+
+            try:
+                quote_volume = float(
+                    ticker.get(
+                        "quoteVolume",
+                        0,
+                    )
+                )
+            except (
+                ValueError,
+                TypeError,
+            ):
+                quote_volume = 0.0
+
+            candidates.append(
+                (
+                    symbol,
+                    quote_volume,
+                )
             )
+
+        candidates.sort(
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+        return [
+            symbol
+            for symbol, _ in candidates[:limit]
+        ]
+
+    # =========================================================
+    # SCAN SYMBOL
+    # =========================================================
+
+    async def scan_symbol(
+        self,
+        symbol: str,
+        market: str = "futures",
+    ) -> Dict[str, Any]:
+
+        return await self.analyze_symbol(
+            symbol=symbol,
+            market=market,
+        )
+
+    # =========================================================
+    # SCAN MARKET
+    # =========================================================
+
+    async def scan(
+        self,
+        market: str = "futures",
+    ) -> List[Dict[str, Any]]:
+
+        market = market.lower().strip()
+
+        if market not in {
+            "spot",
+            "futures",
+        }:
+            raise ValueError(
+                "market must be 'spot' or 'futures'"
+            )
+
+        candidates = await self.get_candidates(
+            market=market,
+        )
+
+        results: List[Dict[str, Any]] = []
+
+        for symbol in candidates:
 
             try:
 
-                return await self.scan_symbol(
+                analysis = await self.analyze_symbol(
                     symbol=symbol,
                     market=market,
-                    interval=interval,
-                    limit=limit,
                 )
+
+                if (
+                    analysis.get("success")
+                    and analysis.get("signal")
+                    in {
+                        "LONG",
+                        "SHORT",
+                    }
+                    and float(
+                        analysis.get(
+                            "confidence",
+                            0,
+                        )
+                    ) >= self.min_confidence
+                ):
+                    results.append(
+                        analysis
+                    )
 
             except Exception as exc:
 
-                return {
-                    "success": False,
-                    "symbol": symbol,
-                    "market": market,
-                    "direction": "ERROR",
-                    "confidence": 0,
-                    "error": str(exc),
-                }
+                print(
+                    f"RR Trader scanner error "
+                    f"for {symbol}: {exc}"
+                )
 
-        results = await asyncio.gather(
-            *[
-                analyze_ticker(ticker)
-                for ticker in candidates
-            ]
-        )
-
-        results = list(results)
-
-        # Highest confidence first
         results.sort(
-            key=lambda x: x.get(
-                "confidence",
-                0,
+            key=lambda item: float(
+                item.get(
+                    "confidence",
+                    0,
+                )
             ),
             reverse=True,
         )
 
-        publishable = [
-            item
-            for item in results
-            if item.get(
-                "confidence",
-                0,
-            ) >= self.min_confidence
-            and item.get(
-                "direction"
-            ) in (
-                "LONG",
-                "SHORT",
-            )
-        ]
+        return results[:10]
 
-        return {
-            "success": True,
-            "market": market,
-            "interval": interval,
-            "scanned": len(results),
-            "publishable": len(
-                publishable
-            ),
-            "min_confidence": (
-                self.min_confidence
-            ),
-            "candidates": results,
-            "top_signals": publishable,
-        }
+    # =========================================================
+    # COMPATIBILITY METHODS
+    # =========================================================
+
+    async def scan_market(
+        self,
+        market: str = "futures",
+    ) -> List[Dict[str, Any]]:
+
+        return await self.scan(
+            market=market
+        )
+
+    async def scan_markets(
+        self,
+        market: str = "futures",
+    ) -> List[Dict[str, Any]]:
+
+        return await self.scan(
+            market=market
+        )
+
+    async def run(
+        self,
+        market: str = "futures",
+    ) -> List[Dict[str, Any]]:
+
+        return await self.scan(
+            market=market
+        )
+
+    async def execute(
+        self,
+        market: str = "futures",
+    ) -> List[Dict[str, Any]]:
+
+        return await self.scan(
+            market=market
+        )
 
 
-# =============================================================
-# HELPER
-# =============================================================
-
-async def scan_market(
-    market: str = "futures",
-    interval: str = "15m",
-) -> Dict[str, Any]:
-
-    scanner = MarketScanner()
-
-    return await scanner.scan(
-        market=market,
-        interval=interval,
-    )
+__all__ = [
+    "MarketScanner",
+]
