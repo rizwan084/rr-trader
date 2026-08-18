@@ -19,13 +19,8 @@ class MarketScanner:
     - Binance Futures
     - Binance Spot
     - 24H liquidity
-    - 1m
-    - 2m (aggregated from 1m)
-    - 3m
     - 5m
     - 15m
-    - 30m
-    - 45m (aggregated from 15m)
     - 1h
     - 4h
     - EMA20 / EMA50
@@ -45,37 +40,24 @@ class MarketScanner:
     # =========================================================
 
     TIMEFRAMES = (
-        "1m",
-        "2m",
-        "3m",
         "5m",
         "15m",
-        "30m",
-        "45m",
         "1h",
         "4h",
     )
 
     NATIVE_TIMEFRAMES = (
-        "1m",
-        "3m",
         "5m",
         "15m",
-        "30m",
         "1h",
         "4h",
     )
 
     TIMEFRAME_WEIGHTS: Dict[str, float] = {
-        "1m": 0.04,
-        "2m": 0.04,
-        "3m": 0.05,
-        "5m": 0.07,
-        "15m": 0.16,
-        "30m": 0.16,
-        "45m": 0.14,
-        "1h": 0.17,
-        "4h": 0.17,
+        "5m": 0.10,
+        "15m": 0.25,
+        "1h": 0.30,
+        "4h": 0.35,
     }
 
     # =========================================================
@@ -107,20 +89,20 @@ class MarketScanner:
 
         # Keep memory controlled.
         self.base_candle_limit = max(
-            80,
+            60,
             min(
                 int(
                     self.settings.default_candle_limit
                 ),
-                160,
+                120,
             ),
         )
 
         # Maximum network requests at one time.
-        self.request_semaphore = asyncio.Semaphore(4)
+        self.request_semaphore = asyncio.Semaphore(3)
 
         # Maximum symbols analyzed at one time.
-        self.symbol_semaphore = asyncio.Semaphore(2)
+        self.symbol_semaphore = asyncio.Semaphore(1)
 
         # Advanced market intelligence.
         self.binance_client = BinanceClient(
@@ -699,71 +681,19 @@ class MarketScanner:
         )
 
         limit = max(
-            80,
+            60,
             min(
                 int(limit),
-                160,
+                120,
             ),
         )
 
-        # -----------------------------------------------------
-        # 2M
-        # -----------------------------------------------------
-
-        if timeframe == "2m":
-
-            source_limit = min(
-                200,
-                (limit * 2) + 5,
-            )
-
-            one_minute = (
-                await self.get_klines(
-                    symbol=symbol,
-                    market=market,
-                    interval="1m",
-                    limit=source_limit,
-                )
-            )
-
-            return self.aggregate_klines(
-                one_minute,
-                2,
-            )[-limit:]
-
-        # -----------------------------------------------------
-        # 45M
-        # -----------------------------------------------------
-
-        if timeframe == "45m":
-
-            source_limit = min(
-                200,
-                (limit * 3) + 5,
-            )
-
-            fifteen_minute = (
-                await self.get_klines(
-                    symbol=symbol,
-                    market=market,
-                    interval="15m",
-                    limit=source_limit,
-                )
-            )
-
-            return self.aggregate_klines(
-                fifteen_minute,
-                3,
-            )[-limit:]
-
-        # -----------------------------------------------------
-        # Native timeframe
-        # -----------------------------------------------------
-
+        # Only four native timeframes are scanned.
+        # This is intentional to reduce memory usage,
+        # request volume, and Render CPU pressure.
         if timeframe not in (
             self.NATIVE_TIMEFRAMES
         ):
-
             raise ValueError(
                 f"Unsupported timeframe: {timeframe}"
             )
@@ -1419,17 +1349,6 @@ class MarketScanner:
                 confidence,
                 2,
             ),
-            "confidence_level": confidence_level,
-            "confirmation_count": confirmation_count,
-            "total_confirmation_factors": total_confirmation_factors,
-            "confirmation_percent": round(
-                confirmation_percent,
-                2,
-            ),
-            "confidence_details": (
-                confidence_result.to_dict()
-            ),
-            "market_microstructure": microstructure,
             "score": round(
                 max(
                     bullish_score,
@@ -2502,10 +2421,10 @@ class MarketScanner:
         )
 
         requested_limit = max(
-            80,
+            60,
             min(
                 requested_limit,
-                160,
+                120,
             ),
         )
 
@@ -2519,107 +2438,49 @@ class MarketScanner:
         )
 
         # -----------------------------------------------------
-        # Fetch native timeframes.
-        # Request semaphore prevents
-        # too many simultaneous HTTP requests.
+        # Fetch ONLY the four configured timeframes.
+        #
+        # 5m  -> execution / entry context
+        # 15m -> setup confirmation
+        # 1h  -> higher-timeframe trend
+        # 4h  -> primary market direction
+        #
+        # Keeping the scanner to four native timeframes
+        # materially reduces memory and request pressure.
         # -----------------------------------------------------
-
-        native_tasks = {
-            timeframe: asyncio.create_task(
-                self.get_timeframe_klines(
-                    symbol=symbol,
-                    market=market,
-                    timeframe=timeframe,
-                    limit=requested_limit,
-                )
-            )
-            for timeframe in (
-                self.NATIVE_TIMEFRAMES
-            )
-        }
 
         native_results: Dict[
             str,
             List[List[Any]],
         ] = {}
 
-        for timeframe, task in (
-            native_tasks.items()
-        ):
-
+        for timeframe in self.NATIVE_TIMEFRAMES:
             try:
-
                 native_results[
                     timeframe
-                ] = await task
-
+                ] = await self.get_timeframe_klines(
+                    symbol=symbol,
+                    market=market,
+                    timeframe=timeframe,
+                    limit=requested_limit,
+                )
             except Exception:
-
                 native_results[
                     timeframe
                 ] = []
 
-        # Release task references.
-        del native_tasks
-
-        # -----------------------------------------------------
-        # Build 2m and 45m.
-        # -----------------------------------------------------
-
-        one_minute = (
-            native_results.get(
-                "1m",
-                []
-            )
-        )
-
-        fifteen_minute = (
-            native_results.get(
-                "15m",
-                []
-            )
-        )
-
         timeframe_klines: Dict[
             str,
             List[List[Any]],
-        ] = {}
-
-        for timeframe in (
-            "1m",
-            "3m",
-            "5m",
-            "15m",
-            "30m",
-            "1h",
-            "4h",
-        ):
-
-            timeframe_klines[
-                timeframe
-            ] = native_results.get(
+        ] = {
+            timeframe: native_results.get(
                 timeframe,
                 [],
             )
+            for timeframe in self.TIMEFRAMES
+        }
 
-        timeframe_klines[
-            "2m"
-        ] = self.aggregate_klines(
-            one_minute,
-            2,
-        )[-requested_limit:]
-
-        timeframe_klines[
-            "45m"
-        ] = self.aggregate_klines(
-            fifteen_minute,
-            3,
-        )[-requested_limit:]
-
-        # Release raw native container.
         del native_results
-        del one_minute
-        del fifteen_minute
 
         # -----------------------------------------------------
         # Analyze timeframe data.
@@ -3010,6 +2871,15 @@ class MarketScanner:
                 confidence,
                 2,
             ),
+            "confidence_level": confidence_level,
+            "confirmation_count": confirmation_count,
+            "total_confirmation_factors": total_confirmation_factors,
+            "confirmation_percent": round(
+                confirmation_percent,
+                2,
+            ),
+            "confidence_details": confidence_result.to_dict(),
+            "market_microstructure": microstructure,
             "publishable": publishable,
             "reasons": reasons,
             "entry": trade_levels.get(
