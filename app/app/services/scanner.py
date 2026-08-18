@@ -5,15 +5,21 @@ import statistics
 
 import httpx
 
-# IMPORTANT:
-# Project structure:
-# app/
-#   app/
-#     config.py
-#     services/
-#       scanner.py
+
+# =========================================================
+# PACKAGE IMPORT
+# =========================================================
 #
-# Isliye scanner.py se config ko parent package se import karna hai.
+# Project structure:
+#
+# app/
+# └── app/
+#     ├── config.py
+#     └── services/
+#         └── scanner.py
+#
+# scanner.py -> parent package -> config.py
+#
 from ..config import Settings
 
 
@@ -29,11 +35,25 @@ class MarketScanner:
     - EMA20 / EMA50
     - Momentum
     - Volume confirmation
+    - ATR
     - LONG / SHORT scoring
+    - Entry
+    - Stop loss
+    - TP1 / TP2 / TP3
+    - Risk/reward
     - Single-symbol analysis
+    - General market scanning
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
+    # =========================================================
+    # INITIALIZATION
+    # =========================================================
+
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+    ) -> None:
+
         self.settings = settings or Settings()
 
         self.futures_url = (
@@ -61,10 +81,15 @@ class MarketScanner:
         url: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
+        """
+        Perform an async HTTP GET request.
+        """
+
         async with httpx.AsyncClient(
             timeout=self.timeout,
             headers={
                 "User-Agent": "RR-Trader/2.0",
+                "Accept": "application/json",
             },
         ) as client:
 
@@ -81,7 +106,14 @@ class MarketScanner:
     # BASE URL
     # =========================================================
 
-    def _base_url(self, market: str) -> str:
+    def _base_url(
+        self,
+        market: str,
+    ) -> str:
+        """
+        Return Binance base URL for the selected market.
+        """
+
         market = market.lower().strip()
 
         if market == "spot":
@@ -102,16 +134,28 @@ class MarketScanner:
         self,
         market: str = "futures",
     ) -> List[Dict[str, Any]]:
+        """
+        Get Binance 24-hour ticker data.
+        """
 
         market = market.lower().strip()
 
         if market == "spot":
-            url = f"{self.spot_url}/api/v3/ticker/24hr"
+
+            url = (
+                f"{self.spot_url}"
+                "/api/v3/ticker/24hr"
+            )
 
         elif market == "futures":
-            url = f"{self.futures_url}/fapi/v1/ticker/24hr"
+
+            url = (
+                f"{self.futures_url}"
+                "/fapi/v1/ticker/24hr"
+            )
 
         else:
+
             raise ValueError(
                 "market must be 'futures' or 'spot'"
             )
@@ -132,17 +176,40 @@ class MarketScanner:
         symbol: str,
         market: str = "futures",
     ) -> Dict[str, Any]:
+        """
+        Get 24-hour ticker for one symbol.
+        """
 
         market = market.lower().strip()
-        symbol = symbol.upper().replace("/", "").strip()
+
+        symbol = (
+            symbol
+            .upper()
+            .replace("/", "")
+            .strip()
+        )
+
+        if not symbol:
+            raise ValueError(
+                "symbol is required"
+            )
 
         if market == "spot":
-            url = f"{self.spot_url}/api/v3/ticker/24hr"
+
+            url = (
+                f"{self.spot_url}"
+                "/api/v3/ticker/24hr"
+            )
 
         elif market == "futures":
-            url = f"{self.futures_url}/fapi/v1/ticker/24hr"
+
+            url = (
+                f"{self.futures_url}"
+                "/fapi/v1/ticker/24hr"
+            )
 
         else:
+
             raise ValueError(
                 "market must be 'futures' or 'spot'"
             )
@@ -172,19 +239,42 @@ class MarketScanner:
         interval: str = "15m",
         limit: int = 200,
     ) -> List[List[Any]]:
+        """
+        Get Binance OHLCV candles.
+        """
 
         market = market.lower().strip()
-        symbol = symbol.upper().replace("/", "").strip()
+
+        symbol = (
+            symbol
+            .upper()
+            .replace("/", "")
+            .strip()
+        )
 
         if market == "spot":
-            url = f"{self.spot_url}/api/v3/klines"
+
+            url = (
+                f"{self.spot_url}"
+                "/api/v3/klines"
+            )
 
         elif market == "futures":
-            url = f"{self.futures_url}/fapi/v1/klines"
+
+            url = (
+                f"{self.futures_url}"
+                "/fapi/v1/klines"
+            )
 
         else:
+
             raise ValueError(
                 "market must be 'futures' or 'spot'"
+            )
+
+        if limit < 1:
+            raise ValueError(
+                "limit must be greater than 0"
             )
 
         data = await self._get(
@@ -209,9 +299,15 @@ class MarketScanner:
     def is_valid_usdt_pair(
         ticker: Dict[str, Any],
     ) -> bool:
+        """
+        Return True for normal USDT trading pairs.
+        """
 
         symbol = str(
-            ticker.get("symbol", "")
+            ticker.get(
+                "symbol",
+                "",
+            )
         ).upper()
 
         if not symbol.endswith("USDT"):
@@ -225,8 +321,8 @@ class MarketScanner:
         )
 
         if any(
-            word in symbol
-            for word in blocked_words
+            blocked in symbol
+            for blocked in blocked_words
         ):
             return False
 
@@ -241,24 +337,39 @@ class MarketScanner:
         values: List[float],
         period: int,
     ) -> float:
+        """
+        Calculate Exponential Moving Average.
+        """
 
         if not values:
             return 0.0
 
+        if period <= 0:
+            raise ValueError(
+                "period must be greater than 0"
+            )
+
         if len(values) < period:
+
             return float(
                 statistics.mean(values)
             )
 
-        multiplier = 2 / (period + 1)
+        multiplier = 2 / (
+            period + 1
+        )
 
         ema_value = statistics.mean(
             values[:period]
         )
 
         for price in values[period:]:
+
             ema_value = (
-                (price - ema_value)
+                (
+                    price
+                    - ema_value
+                )
                 * multiplier
             ) + ema_value
 
@@ -273,11 +384,17 @@ class MarketScanner:
         klines: List[List[Any]],
         period: int = 14,
     ) -> float:
+        """
+        Calculate Average True Range.
+        """
 
-        if len(klines) < period + 1:
+        if len(klines) < (
+            period + 1
+        ):
             return 0.0
 
         try:
+
             highs = [
                 float(k[2])
                 for k in klines
@@ -298,19 +415,32 @@ class MarketScanner:
             TypeError,
             IndexError,
         ):
+
             return 0.0
 
         true_ranges: List[float] = []
 
-        for i in range(1, len(klines)):
-            high = highs[i]
-            low = lows[i]
-            previous_close = closes[i - 1]
+        for index in range(
+            1,
+            len(klines),
+        ):
+
+            high = highs[index]
+            low = lows[index]
+            previous_close = closes[
+                index - 1
+            ]
 
             true_range = max(
                 high - low,
-                abs(high - previous_close),
-                abs(low - previous_close),
+                abs(
+                    high
+                    - previous_close
+                ),
+                abs(
+                    low
+                    - previous_close
+                ),
             )
 
             true_ranges.append(
@@ -322,7 +452,9 @@ class MarketScanner:
 
         return float(
             statistics.mean(
-                true_ranges[-period:]
+                true_ranges[
+                    -period:
+                ]
             )
         )
 
@@ -335,14 +467,20 @@ class MarketScanner:
         cls,
         klines: List[List[Any]],
     ) -> Dict[str, Any]:
+        """
+        Analyze candles using EMA, momentum,
+        volume and ATR.
+        """
 
         if len(klines) < 50:
+
             return {
                 "valid": False,
                 "reason": "not_enough_candles",
             }
 
         try:
+
             closes = [
                 float(k[4])
                 for k in klines
@@ -368,6 +506,7 @@ class MarketScanner:
             TypeError,
             IndexError,
         ):
+
             return {
                 "valid": False,
                 "reason": "invalid_candle_data",
@@ -388,10 +527,16 @@ class MarketScanner:
         previous_price = closes[-6]
 
         if previous_price == 0:
+
             momentum_pct = 0.0
+
         else:
+
             momentum_pct = (
-                (price - previous_price)
+                (
+                    price
+                    - previous_price
+                )
                 / previous_price
             ) * 100
 
@@ -403,28 +548,45 @@ class MarketScanner:
             volumes[-30:-10]
         )
 
-        volume_ratio = (
-            recent_volume / previous_volume
-            if previous_volume > 0
-            else 1.0
-        )
+        if previous_volume > 0:
+
+            volume_ratio = (
+                recent_volume
+                / previous_volume
+            )
+
+        else:
+
+            volume_ratio = 1.0
+
+        # -----------------------------------------------------
+        # TREND DIRECTION
+        # -----------------------------------------------------
 
         if (
             price > ema20
             and ema20 > ema50
         ):
+
             direction = "LONG"
 
         elif (
             price < ema20
             and ema20 < ema50
         ):
+
             direction = "SHORT"
 
         else:
+
             direction = "WAIT"
 
+        # -----------------------------------------------------
+        # CONFIDENCE
+        # -----------------------------------------------------
+
         confidence = 50.0
+
         reasons: List[str] = []
 
         if direction == "LONG":
@@ -436,13 +598,17 @@ class MarketScanner:
             )
 
             if momentum_pct > 0:
+
                 confidence += 10
+
                 reasons.append(
                     "Positive momentum"
                 )
 
             if volume_ratio > 1.2:
+
                 confidence += 8
+
                 reasons.append(
                     "Volume confirmation"
                 )
@@ -456,13 +622,17 @@ class MarketScanner:
             )
 
             if momentum_pct < 0:
+
                 confidence += 10
+
                 reasons.append(
                     "Negative momentum"
                 )
 
             if volume_ratio > 1.2:
+
                 confidence += 8
+
                 reasons.append(
                     "Volume confirmation"
                 )
@@ -484,11 +654,29 @@ class MarketScanner:
             2,
         )
 
+        atr_value = cls.atr(
+            klines
+        )
+
+        recent_high = max(
+            highs[-20:]
+        )
+
+        recent_low = min(
+            lows[-20:]
+        )
+
         return {
             "valid": True,
             "price": price,
-            "ema20": round(ema20, 8),
-            "ema50": round(ema50, 8),
+            "ema20": round(
+                ema20,
+                8,
+            ),
+            "ema50": round(
+                ema50,
+                8,
+            ),
             "momentum_pct": round(
                 momentum_pct,
                 4,
@@ -501,13 +689,15 @@ class MarketScanner:
             "confidence": confidence,
             "reasons": reasons,
             "atr": round(
-                cls.atr(klines),
+                atr_value,
                 8,
             ),
+            "recent_high": recent_high,
+            "recent_low": recent_low,
         }
 
     # =========================================================
-    # SYMBOL ANALYSIS
+    # SINGLE SYMBOL ANALYSIS
     # =========================================================
 
     async def analyze_symbol(
@@ -515,19 +705,37 @@ class MarketScanner:
         symbol: str,
         market: str = "futures",
     ) -> Dict[str, Any]:
+        """
+        Analyze one trading pair.
+        """
 
         symbol = (
-            symbol.upper()
+            symbol
+            .upper()
             .replace("/", "")
             .strip()
         )
 
         market = market.lower().strip()
 
+        if market not in {
+            "spot",
+            "futures",
+        }:
+
+            raise ValueError(
+                "market must be 'spot' or 'futures'"
+            )
+
         if not symbol.endswith("USDT"):
+
             raise ValueError(
                 "Only USDT trading pairs are supported."
             )
+
+        # -----------------------------------------------------
+        # MARKET DATA
+        # -----------------------------------------------------
 
         ticker = await self.get_ticker(
             symbol=symbol,
@@ -541,11 +749,20 @@ class MarketScanner:
             limit=self.settings.default_candle_limit,
         )
 
-        candle_analysis = self.analyze_candles(
-            klines
+        # -----------------------------------------------------
+        # TECHNICAL ANALYSIS
+        # -----------------------------------------------------
+
+        candle_analysis = (
+            self.analyze_candles(
+                klines
+            )
         )
 
-        if not candle_analysis.get("valid"):
+        if not candle_analysis.get(
+            "valid"
+        ):
+
             return {
                 "success": False,
                 "symbol": symbol,
@@ -556,19 +773,29 @@ class MarketScanner:
                 ),
             }
 
+        # -----------------------------------------------------
+        # CURRENT PRICE
+        # -----------------------------------------------------
+
         price = float(
             ticker.get(
                 "lastPrice",
-                candle_analysis["price"],
+                candle_analysis[
+                    "price"
+                ],
             )
         )
 
-        direction = candle_analysis[
-            "direction"
-        ]
+        direction = (
+            candle_analysis[
+                "direction"
+            ]
+        )
 
         confidence = float(
-            candle_analysis["confidence"]
+            candle_analysis[
+                "confidence"
+            ]
         )
 
         atr_value = float(
@@ -579,48 +806,93 @@ class MarketScanner:
         )
 
         if atr_value <= 0:
+
             atr_value = price * 0.01
+
+        # -----------------------------------------------------
+        # TRADE LEVELS
+        # -----------------------------------------------------
 
         entry = price
 
+        risk = 0.0
+
         if direction == "LONG":
 
-            stop_loss = entry - (
-                atr_value * 1.2
+            stop_loss = (
+                entry
+                - (
+                    atr_value
+                    * 1.2
+                )
             )
 
-            risk = entry - stop_loss
-
-            tp1 = entry + (
-                risk * 1.5
+            risk = (
+                entry
+                - stop_loss
             )
 
-            tp2 = entry + (
-                risk * 2.5
+            tp1 = (
+                entry
+                + (
+                    risk
+                    * 1.5
+                )
             )
 
-            tp3 = entry + (
-                risk * 3.5
+            tp2 = (
+                entry
+                + (
+                    risk
+                    * 2.5
+                )
+            )
+
+            tp3 = (
+                entry
+                + (
+                    risk
+                    * 3.5
+                )
             )
 
         elif direction == "SHORT":
 
-            stop_loss = entry + (
-                atr_value * 1.2
+            stop_loss = (
+                entry
+                + (
+                    atr_value
+                    * 1.2
+                )
             )
 
-            risk = stop_loss - entry
-
-            tp1 = entry - (
-                risk * 1.5
+            risk = (
+                stop_loss
+                - entry
             )
 
-            tp2 = entry - (
-                risk * 2.5
+            tp1 = (
+                entry
+                - (
+                    risk
+                    * 1.5
+                )
             )
 
-            tp3 = entry - (
-                risk * 3.5
+            tp2 = (
+                entry
+                - (
+                    risk
+                    * 2.5
+                )
+            )
+
+            tp3 = (
+                entry
+                - (
+                    risk
+                    * 3.5
+                )
             )
 
         else:
@@ -632,17 +904,34 @@ class MarketScanner:
             tp3 = None
             risk = 0.0
 
-        if risk > 0:
-            risk_reward = abs(
-                tp2 - entry
-            ) / risk
+        # -----------------------------------------------------
+        # RISK / REWARD
+        # -----------------------------------------------------
+
+        if (
+            risk > 0
+            and entry is not None
+            and tp2 is not None
+        ):
+
+            risk_reward = (
+                abs(
+                    tp2
+                    - entry
+                )
+                / risk
+            )
+
         else:
+
             risk_reward = 0.0
 
         if risk_reward >= 3:
+
             confidence += 4
 
         elif risk_reward >= 2:
+
             confidence += 2
 
         confidence = round(
@@ -656,6 +945,10 @@ class MarketScanner:
             2,
         )
 
+        # -----------------------------------------------------
+        # FINAL SIGNAL
+        # -----------------------------------------------------
+
         if (
             direction in {
                 "LONG",
@@ -664,16 +957,23 @@ class MarketScanner:
             and confidence
             >= self.min_confidence
         ):
+
             signal = direction
 
         elif direction in {
             "LONG",
             "SHORT",
         }:
+
             signal = "WATCH"
 
         else:
+
             signal = "WAIT"
+
+        # -----------------------------------------------------
+        # HUMAN THESIS
+        # -----------------------------------------------------
 
         if direction == "LONG":
 
@@ -697,6 +997,10 @@ class MarketScanner:
                 "Market structure is mixed; "
                 "wait for stronger confirmation."
             )
+
+        # -----------------------------------------------------
+        # RESPONSE
+        # -----------------------------------------------------
 
         return {
             "success": True,
@@ -734,7 +1038,7 @@ class MarketScanner:
         }
 
     # =========================================================
-    # CANDIDATES
+    # CANDIDATE SELECTION
     # =========================================================
 
     async def get_candidates(
@@ -742,9 +1046,15 @@ class MarketScanner:
         market: str = "futures",
         limit: Optional[int] = None,
     ) -> List[str]:
+        """
+        Select highest-volume USDT pairs.
+        """
 
         if limit is None:
-            limit = self.settings.auto_scan_coins
+
+            limit = (
+                self.settings.auto_scan_coins
+            )
 
         tickers = await self.get_24h_tickers(
             market
@@ -770,16 +1080,19 @@ class MarketScanner:
                 continue
 
             try:
+
                 quote_volume = float(
                     ticker.get(
                         "quoteVolume",
                         0,
                     )
                 )
+
             except (
                 ValueError,
                 TypeError,
             ):
+
                 quote_volume = 0.0
 
             candidates.append(
@@ -796,7 +1109,9 @@ class MarketScanner:
 
         return [
             symbol
-            for symbol, _ in candidates[:limit]
+            for symbol, _ in candidates[
+                :limit
+            ]
         ]
 
     # =========================================================
@@ -808,6 +1123,9 @@ class MarketScanner:
         symbol: str,
         market: str = "futures",
     ) -> Dict[str, Any]:
+        """
+        Compatibility wrapper for API routes.
+        """
 
         return await self.analyze_symbol(
             symbol=symbol,
@@ -815,13 +1133,17 @@ class MarketScanner:
         )
 
     # =========================================================
-    # SCAN MARKET
+    # GENERAL MARKET SCAN
     # =========================================================
 
     async def scan(
         self,
         market: str = "futures",
     ) -> List[Dict[str, Any]]:
+        """
+        Scan highest-volume candidates
+        and return high-confidence signals.
+        """
 
         market = market.lower().strip()
 
@@ -829,6 +1151,7 @@ class MarketScanner:
             "spot",
             "futures",
         }:
+
             raise ValueError(
                 "market must be 'spot' or 'futures'"
             )
@@ -837,21 +1160,28 @@ class MarketScanner:
             market=market,
         )
 
-        results: List[Dict[str, Any]] = []
+        results: List[
+            Dict[str, Any]
+        ] = []
 
         for symbol in candidates:
 
             try:
 
-                analysis = await self.analyze_symbol(
-                    symbol=symbol,
-                    market=market,
+                analysis = (
+                    await self.analyze_symbol(
+                        symbol=symbol,
+                        market=market,
+                    )
                 )
 
                 if (
-                    analysis.get("success")
-                    and analysis.get("signal")
-                    in {
+                    analysis.get(
+                        "success"
+                    )
+                    and analysis.get(
+                        "signal"
+                    ) in {
                         "LONG",
                         "SHORT",
                     }
@@ -862,6 +1192,7 @@ class MarketScanner:
                         )
                     ) >= self.min_confidence
                 ):
+
                     results.append(
                         analysis
                     )
@@ -926,6 +1257,25 @@ class MarketScanner:
         )
 
 
+# =========================================================
+# HELPER
+# =========================================================
+
+async def scan_market(
+    market: str = "futures",
+) -> List[Dict[str, Any]]:
+    """
+    Application-level scanner helper.
+    """
+
+    scanner = MarketScanner()
+
+    return await scanner.scan(
+        market=market
+    )
+
+
 __all__ = [
     "MarketScanner",
+    "scan_market",
 ]
