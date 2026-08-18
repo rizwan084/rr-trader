@@ -5,37 +5,12 @@ from typing import Any
 
 from app.services.indicators import indicator_engine
 from app.services.market_data import market_data_service
-from app.services.market_structure import (
-    market_structure_engine,
-)
+from app.services.market_structure import market_structure_engine
 from app.services.mtf_engine import mtf_engine
-from app.services.confidence_engine import (
-    confidence_engine,
-)
+from app.services.confidence_engine import confidence_engine
 
 
 class MasterAnalysisEngine:
-    """
-    RR Trader master deterministic analysis engine.
-
-    Combines:
-
-    - 15m
-    - 1H
-    - 4H
-    - Technical indicators
-    - Market structure
-    - Multi-timeframe confirmation
-    - Order book
-    - Derivatives
-    - Liquidations
-    - Support / resistance
-    - Risk / reward
-    - Confidence Engine v2
-
-    This engine performs analysis only.
-    Trade execution remains separate.
-    """
 
     CORE_TIMEFRAMES = (
         "15m",
@@ -46,7 +21,7 @@ class MasterAnalysisEngine:
     MIN_CONFIDENCE = 85.0
 
     # =====================================================
-    # HELPERS
+    # BASIC HELPERS
     # =====================================================
 
     @staticmethod
@@ -54,18 +29,17 @@ class MasterAnalysisEngine:
         value: Any,
         default: float = 0.0,
     ) -> float:
+
         try:
             return float(value)
-        except (
-            TypeError,
-            ValueError,
-        ):
+        except (TypeError, ValueError):
             return default
 
     @staticmethod
     def _direction(
         value: Any,
     ) -> str:
+
         direction = str(
             value or "NEUTRAL"
         ).upper().strip()
@@ -85,12 +59,10 @@ class MasterAnalysisEngine:
         low: float = 0.0,
         high: float = 100.0,
     ) -> float:
+
         try:
             number = float(value)
-        except (
-            TypeError,
-            ValueError,
-        ):
+        except (TypeError, ValueError):
             number = low
 
         return max(
@@ -246,7 +218,7 @@ class MasterAnalysisEngine:
                 )
             ).upper()
 
-            qty = self._float(
+            quantity = self._float(
                 item.get(
                     "origQty",
                     item.get(
@@ -264,20 +236,16 @@ class MasterAnalysisEngine:
             )
 
             notional = (
-                abs(qty * price)
+                abs(quantity * price)
                 if price > 0
-                else abs(qty)
+                else abs(quantity)
             )
 
             if side == "SELL":
-                long_liquidations += (
-                    notional
-                )
+                long_liquidations += notional
 
             elif side == "BUY":
-                short_liquidations += (
-                    notional
-                )
+                short_liquidations += notional
 
         total = (
             long_liquidations
@@ -368,12 +336,14 @@ class MasterAnalysisEngine:
             )
             and funding
         ):
+
             latest = funding[-1]
 
             if isinstance(
                 latest,
                 dict,
             ):
+
                 funding_rate = self._float(
                     latest.get(
                         "fundingRate",
@@ -405,12 +375,14 @@ class MasterAnalysisEngine:
             )
             and global_ratio
         ):
+
             latest = global_ratio[-1]
 
             if isinstance(
                 latest,
                 dict,
             ):
+
                 ratio = self._float(
                     latest.get(
                         "longShortRatio",
@@ -443,12 +415,14 @@ class MasterAnalysisEngine:
             )
             and top_ratio
         ):
+
             latest = top_ratio[-1]
 
             if isinstance(
                 latest,
                 dict,
             ):
+
                 ratio = self._float(
                     latest.get(
                         "longShortRatio",
@@ -460,13 +434,13 @@ class MasterAnalysisEngine:
                 if ratio < 0.90:
                     long_evidence += 1
                     reasons.append(
-                        "Top traders lean short."
+                        "Top trader positioning leans short."
                     )
 
                 elif ratio > 1.10:
                     short_evidence += 1
                     reasons.append(
-                        "Top traders lean long."
+                        "Top trader positioning leans long."
                     )
 
         if long_evidence > short_evidence:
@@ -501,7 +475,7 @@ class MasterAnalysisEngine:
         }
 
     # =====================================================
-    # TIMEFRAME ANALYSIS
+    # SINGLE TIMEFRAME ANALYSIS
     # =====================================================
 
     async def _analyze_timeframe(
@@ -547,6 +521,7 @@ class MasterAnalysisEngine:
             candles = []
 
         if len(candles) < 20:
+
             return (
                 timeframe,
                 {
@@ -634,7 +609,6 @@ class MasterAnalysisEngine:
             )
         )
 
-        # EMA
         if (
             price > 0
             and ema20 > 0
@@ -642,58 +616,65 @@ class MasterAnalysisEngine:
         ):
 
             if price > ema20 > ema50:
+
                 long_score += 20
+
                 reasons.append(
                     "EMA structure bullish."
                 )
 
             elif price < ema20 < ema50:
+
                 short_score += 20
+
                 reasons.append(
                     "EMA structure bearish."
                 )
 
-        # Momentum
         if momentum > 0:
+
             long_score += min(
                 15,
                 abs(momentum) * 3,
             )
+
             reasons.append(
                 "Momentum positive."
             )
 
         elif momentum < 0:
+
             short_score += min(
                 15,
                 abs(momentum) * 3,
             )
+
             reasons.append(
                 "Momentum negative."
             )
 
-        # Structure
-        structure_direction = (
-            self._direction(
-                structure.get(
-                    "direction"
-                )
+        structure_direction = self._direction(
+            structure.get(
+                "direction"
             )
         )
 
         if structure_direction == "LONG":
+
             long_score += 25
+
             reasons.append(
                 "Market structure bullish."
             )
 
         elif structure_direction == "SHORT":
+
             short_score += 25
+
             reasons.append(
                 "Market structure bearish."
             )
 
-        # Breakout
         breakout = indicators.get(
             "breakout",
             {},
@@ -705,27 +686,28 @@ class MasterAnalysisEngine:
         ):
             breakout = {}
 
-        breakout_direction = (
-            self._direction(
-                breakout.get(
-                    "direction"
-                )
+        breakout_direction = self._direction(
+            breakout.get(
+                "direction"
             )
         )
 
         if breakout_direction == "LONG":
+
             long_score += 10
+
             reasons.append(
                 "Bullish breakout detected."
             )
 
         elif breakout_direction == "SHORT":
+
             short_score += 10
+
             reasons.append(
                 "Bearish breakout detected."
             )
 
-        # VWAP
         if (
             price > 0
             and vwap > 0
@@ -737,7 +719,6 @@ class MasterAnalysisEngine:
             elif price < vwap:
                 short_score += 5
 
-        # Final direction
         if long_score > short_score:
             direction = "LONG"
 
@@ -788,6 +769,7 @@ class MasterAnalysisEngine:
             "LONG",
             "SHORT",
         }:
+
             return {
                 "entry": 0.0,
                 "stop_loss": 0.0,
@@ -795,8 +777,7 @@ class MasterAnalysisEngine:
                 "tp2": 0.0,
                 "tp3": 0.0,
                 "risk_reward": 0.0,
-                "stop_quality":
-                    "INVALID",
+                "stop_quality": "INVALID",
             }
 
         fifteen = timeframes.get(
@@ -872,6 +853,7 @@ class MasterAnalysisEngine:
         )
 
         if entry <= 0:
+
             return {
                 "entry": 0.0,
                 "stop_loss": 0.0,
@@ -879,28 +861,29 @@ class MasterAnalysisEngine:
                 "tp2": 0.0,
                 "tp3": 0.0,
                 "risk_reward": 0.0,
-                "stop_quality":
-                    "INVALID",
+                "stop_quality": "INVALID",
             }
 
-        # LONG
         if direction == "LONG":
 
             if (
                 support > 0
                 and support < entry
             ):
+
                 stop_loss = (
                     support * 0.995
                 )
 
             elif atr > 0:
+
                 stop_loss = (
                     entry
                     - atr * 1.5
                 )
 
             else:
+
                 stop_loss = (
                     entry * 0.98
                 )
@@ -911,6 +894,7 @@ class MasterAnalysisEngine:
             )
 
             if risk <= 0:
+
                 return {
                     "entry": entry,
                     "stop_loss": 0.0,
@@ -918,8 +902,7 @@ class MasterAnalysisEngine:
                     "tp2": 0.0,
                     "tp3": 0.0,
                     "risk_reward": 0.0,
-                    "stop_quality":
-                        "INVALID",
+                    "stop_quality": "INVALID",
                 }
 
             tp1 = (
@@ -943,7 +926,7 @@ class MasterAnalysisEngine:
                     resistance,
                 )
 
-            rr = (
+            risk_reward = (
                 tp2 - entry
             ) / risk
 
@@ -953,27 +936,29 @@ class MasterAnalysisEngine:
                 "tp1": tp1,
                 "tp2": tp2,
                 "tp3": tp3,
-                "risk_reward": rr,
-                "stop_quality":
-                    "VALID",
+                "risk_reward":
+                    risk_reward,
+                "stop_quality": "VALID",
             }
 
-        # SHORT
         if (
             resistance > 0
             and resistance > entry
         ):
+
             stop_loss = (
                 resistance * 1.005
             )
 
         elif atr > 0:
+
             stop_loss = (
                 entry
                 + atr * 1.5
             )
 
         else:
+
             stop_loss = (
                 entry * 1.02
             )
@@ -984,6 +969,7 @@ class MasterAnalysisEngine:
         )
 
         if risk <= 0:
+
             return {
                 "entry": entry,
                 "stop_loss": 0.0,
@@ -991,8 +977,7 @@ class MasterAnalysisEngine:
                 "tp2": 0.0,
                 "tp3": 0.0,
                 "risk_reward": 0.0,
-                "stop_quality":
-                    "INVALID",
+                "stop_quality": "INVALID",
             }
 
         tp1 = (
@@ -1014,12 +999,13 @@ class MasterAnalysisEngine:
             support > 0
             and support < entry
         ):
+
             tp2 = min(
                 tp2,
                 support,
             )
 
-        rr = (
+        risk_reward = (
             entry - tp2
         ) / risk
 
@@ -1029,9 +1015,9 @@ class MasterAnalysisEngine:
             "tp1": tp1,
             "tp2": tp2,
             "tp3": tp3,
-            "risk_reward": rr,
-            "stop_quality":
-                "VALID",
+            "risk_reward":
+                risk_reward,
+            "stop_quality": "VALID",
         }
 
     # =====================================================
@@ -1082,87 +1068,87 @@ class MasterAnalysisEngine:
         ):
             four_hour = {}
 
-        fifteen_indicators = (
-            fifteen.get(
-                "indicators",
-                {},
-            )
+        fifteen_indicators = fifteen.get(
+            "indicators",
+            {},
         )
 
-        one_hour_indicators = (
-            one_hour.get(
-                "indicators",
-                {},
-            )
+        one_hour_indicators = one_hour.get(
+            "indicators",
+            {},
         )
 
-        four_hour_indicators = (
-            four_hour.get(
-                "indicators",
-                {},
-            )
+        four_hour_indicators = four_hour.get(
+            "indicators",
+            {},
         )
 
-        fifteen_structure = (
-            fifteen.get(
-                "structure",
-                {},
-            )
+        fifteen_structure = fifteen.get(
+            "structure",
+            {},
         )
 
-        one_hour_structure = (
-            one_hour.get(
-                "structure",
-                {},
-            )
+        one_hour_structure = one_hour.get(
+            "structure",
+            {},
         )
 
-        four_hour_structure = (
-            four_hour.get(
-                "structure",
-                {},
-            )
+        four_hour_structure = four_hour.get(
+            "structure",
+            {},
         )
 
-        for name, value in (
-            (
-                "fifteen_indicators",
-                fifteen_indicators,
-            ),
-            (
-                "one_hour_indicators",
-                one_hour_indicators,
-            ),
-            (
-                "four_hour_indicators",
-                four_hour_indicators,
-            ),
-            (
-                "fifteen_structure",
-                fifteen_structure,
-            ),
-            (
-                "one_hour_structure",
-                one_hour_structure,
-            ),
-            (
-                "four_hour_structure",
-                four_hour_structure,
-            ),
+        if not isinstance(
+            fifteen_indicators,
+            dict,
         ):
+            fifteen_indicators = {}
 
-            if not isinstance(
-                value,
-                dict,
-            ):
-                if name.endswith(
-                    "_structure"
-                ):
-                    locals()[name] = {}
-                else:
-                    locals()[name] = {}
+        if not isinstance(
+            one_hour_indicators,
+            dict,
+        ):
+            one_hour_indicators = {}
 
-        # Structure
+        if not isinstance(
+            four_hour_indicators,
+            dict,
+        ):
+            four_hour_indicators = {}
+
+        if not isinstance(
+            fifteen_structure,
+            dict,
+        ):
+            fifteen_structure = {}
+
+        if not isinstance(
+            one_hour_structure,
+            dict,
+        ):
+            one_hour_structure = {}
+
+        if not isinstance(
+            four_hour_structure,
+            dict,
+        ):
+            four_hour_structure = {}
+
+        # -------------------------------------------------
+        # TREND
+        # -------------------------------------------------
+
+        trend_score = self._clamp(
+            one_hour.get(
+                "confidence",
+                0,
+            )
+        )
+
+        # -------------------------------------------------
+        # STRUCTURE
+        # -------------------------------------------------
+
         structure_scores: list[float] = []
 
         for structure in (
@@ -1170,12 +1156,6 @@ class MasterAnalysisEngine:
             one_hour_structure,
             four_hour_structure,
         ):
-
-            if not isinstance(
-                structure,
-                dict,
-            ):
-                continue
 
             details = structure.get(
                 "structure_details",
@@ -1197,7 +1177,8 @@ class MasterAnalysisEngine:
                         )
                     )
                 )
-                + int(
+                +
+                int(
                     bool(
                         details.get(
                             "higher_low",
@@ -1216,7 +1197,8 @@ class MasterAnalysisEngine:
                         )
                     )
                 )
-                + int(
+                +
+                int(
                     bool(
                         details.get(
                             "lower_low",
@@ -1243,15 +1225,10 @@ class MasterAnalysisEngine:
             else 0.0
         )
 
-        # Trend
-        trend_score = self._clamp(
-            one_hour.get(
-                "confidence",
-                0,
-            )
-        )
+        # -------------------------------------------------
+        # MOMENTUM
+        # -------------------------------------------------
 
-        # Momentum
         momentum = self._float(
             fifteen_indicators.get(
                 "momentum",
@@ -1260,17 +1237,23 @@ class MasterAnalysisEngine:
         )
 
         if direction == "LONG":
+
             momentum_score = self._clamp(
                 50.0
                 + momentum * 10.0
             )
+
         else:
+
             momentum_score = self._clamp(
                 50.0
                 - momentum * 10.0
             )
 
-        # Volume
+        # -------------------------------------------------
+        # VOLUME
+        # -------------------------------------------------
+
         volume_scores: list[
             float
         ] = []
@@ -1281,12 +1264,6 @@ class MasterAnalysisEngine:
             four_hour_indicators,
         ):
 
-            if not isinstance(
-                indicators,
-                dict,
-            ):
-                continue
-
             ratio = self._float(
                 indicators.get(
                     "volume_ratio",
@@ -1295,6 +1272,7 @@ class MasterAnalysisEngine:
             )
 
             if ratio > 0:
+
                 volume_scores.append(
                     self._clamp(
                         ratio * 50.0
@@ -1308,19 +1286,13 @@ class MasterAnalysisEngine:
             else 0.0
         )
 
-        # Support / Resistance
-        support_resistance = 0.0
+        # -------------------------------------------------
+        # SUPPORT / RESISTANCE
+        # -------------------------------------------------
 
-        sr = (
-            fifteen_structure.get(
-                "support_resistance",
-                {},
-            )
-            if isinstance(
-                fifteen_structure,
-                dict,
-            )
-            else {}
+        sr = fifteen_structure.get(
+            "support_resistance",
+            {},
         )
 
         if not isinstance(
@@ -1339,26 +1311,38 @@ class MasterAnalysisEngine:
         if direction == "LONG":
 
             if location == "NEAR_SUPPORT":
-                support_resistance = 95.0
+                support_resistance_score = 95.0
 
             elif location == "MID_RANGE":
-                support_resistance = 55.0
+                support_resistance_score = 55.0
+
+            elif location == "NEAR_RESISTANCE":
+                support_resistance_score = 20.0
 
             else:
-                support_resistance = 20.0
+                support_resistance_score = 50.0
 
         elif direction == "SHORT":
 
             if location == "NEAR_RESISTANCE":
-                support_resistance = 95.0
+                support_resistance_score = 95.0
 
             elif location == "MID_RANGE":
-                support_resistance = 55.0
+                support_resistance_score = 55.0
+
+            elif location == "NEAR_SUPPORT":
+                support_resistance_score = 20.0
 
             else:
-                support_resistance = 20.0
+                support_resistance_score = 50.0
 
+        else:
+            support_resistance_score = 0.0
+
+        # -------------------------------------------------
         # MTF
+        # -------------------------------------------------
+
         mtf_direction = self._direction(
             mtf.get(
                 "direction"
@@ -1377,8 +1361,8 @@ class MasterAnalysisEngine:
                 "agreement_ratio",
                 0,
             ),
-            0,
-            1,
+            0.0,
+            1.0,
         )
 
         mtf_score = (
@@ -1395,14 +1379,16 @@ class MasterAnalysisEngine:
             )
             and mtf_direction == direction
         ):
+
             mtf_score += 20.0
 
         mtf_score = self._clamp(
             mtf_score
         )
 
-        # Liquidity
-        liquidity_score = 0.0
+        # -------------------------------------------------
+        # LIQUIDITY
+        # -------------------------------------------------
 
         ob_direction = self._direction(
             order_book.get(
@@ -1418,18 +1404,22 @@ class MasterAnalysisEngine:
         )
 
         if ob_direction == direction:
+
             liquidity_score = ob_score
 
         elif ob_direction == "NEUTRAL":
+
             liquidity_score = (
                 ob_score * 0.35
             )
 
-        liquidation_direction = (
-            self._direction(
-                liquidations.get(
-                    "direction"
-                )
+        else:
+
+            liquidity_score = 0.0
+
+        liquidation_direction = self._direction(
+            liquidations.get(
+                "direction"
             )
         )
 
@@ -1444,17 +1434,19 @@ class MasterAnalysisEngine:
             liquidation_direction
             == direction
         ):
+
             liquidity_score = max(
                 liquidity_score,
                 liquidation_score,
             )
 
-        # Derivatives
-        derivative_direction = (
-            self._direction(
-                derivatives.get(
-                    "direction"
-                )
+        # -------------------------------------------------
+        # DERIVATIVES
+        # -------------------------------------------------
+
+        derivative_direction = self._direction(
+            derivatives.get(
+                "direction"
             )
         )
 
@@ -1465,24 +1457,26 @@ class MasterAnalysisEngine:
             )
         )
 
-        if (
-            derivative_direction
-            == direction
-        ):
+        if derivative_direction == direction:
+
             derivatives_score = (
                 derivative_score
             )
 
         elif derivative_direction == "NEUTRAL":
+
             derivatives_score = (
-                derivative_score
-                * 0.35
+                derivative_score * 0.35
             )
 
         else:
+
             derivatives_score = 0.0
 
-        # Risk / Reward
+        # -------------------------------------------------
+        # RISK / REWARD
+        # -------------------------------------------------
+
         risk_reward = self._float(
             levels.get(
                 "risk_reward",
@@ -1511,40 +1505,39 @@ class MasterAnalysisEngine:
         else:
             risk_reward_score = 100.0
 
-        # Market regime
-        four_hour_direction = (
-            self._direction(
-                four_hour.get(
-                    "direction"
-                )
+        # -------------------------------------------------
+        # MARKET REGIME
+        # -------------------------------------------------
+
+        four_hour_direction = self._direction(
+            four_hour.get(
+                "direction"
             )
         )
 
-        four_hour_confidence = (
-            self._clamp(
-                four_hour.get(
-                    "confidence",
-                    0,
-                )
+        four_hour_confidence = self._clamp(
+            four_hour.get(
+                "confidence",
+                0,
             )
         )
 
-        if (
-            four_hour_direction
-            == direction
-        ):
-            regime_score = (
+        if four_hour_direction == direction:
+
+            market_regime_score = (
                 four_hour_confidence
             )
 
         elif four_hour_direction == "NEUTRAL":
-            regime_score = (
+
+            market_regime_score = (
                 four_hour_confidence
                 * 0.35
             )
 
         else:
-            regime_score = 0.0
+
+            market_regime_score = 0.0
 
         return {
             "direction":
@@ -1601,40 +1594,31 @@ class MasterAnalysisEngine:
             "factor_scores": {
                 "trend":
                     trend_score,
-
                 "structure":
                     self._clamp(
                         structure_score
                     ),
-
                 "momentum":
                     momentum_score,
-
                 "volume":
                     volume_score,
-
                 "support_resistance":
-                    support_resistance,
-
+                    support_resistance_score,
                 "multi_timeframe":
                     mtf_score,
-
                 "liquidity":
                     liquidity_score,
-
                 "derivatives":
                     derivatives_score,
-
                 "risk_reward":
                     risk_reward_score,
-
                 "market_regime":
-                    regime_score,
+                    market_regime_score,
             },
         }
 
     # =====================================================
-    # MASTER ANALYSIS
+    # MAIN ANALYSIS
     # =====================================================
 
     async def analyze(
@@ -1644,21 +1628,13 @@ class MasterAnalysisEngine:
         candle_limit: int = 200,
     ) -> dict[str, Any]:
 
-        symbol = (
-            str(
-                symbol
-            )
-            .upper()
-            .strip()
-        )
+        symbol = str(
+            symbol
+        ).upper().strip()
 
-        market = (
-            str(
-                market
-            )
-            .lower()
-            .strip()
-        )
+        market = str(
+            market
+        ).lower().strip()
 
         if not symbol.endswith(
             "USDT"
@@ -1672,8 +1648,7 @@ class MasterAnalysisEngine:
         # -------------------------------------------------
 
         raw = await (
-            market_data_service
-            .symbol_snapshot(
+            market_data_service.symbol_snapshot(
                 symbol=symbol,
                 market=market,
                 candle_limit=candle_limit,
@@ -1689,10 +1664,10 @@ class MasterAnalysisEngine:
             )
 
         # -------------------------------------------------
-        # TIMEFRAME ANALYSIS
+        # TIMEFRAMES
         # -------------------------------------------------
 
-        results = await asyncio.gather(
+        timeframe_results = await asyncio.gather(
             *[
                 self._analyze_timeframe(
                     raw,
@@ -1709,7 +1684,7 @@ class MasterAnalysisEngine:
             dict[str, Any],
         ] = {}
 
-        for result in results:
+        for result in timeframe_results:
 
             if isinstance(
                 result,
@@ -1728,6 +1703,7 @@ class MasterAnalysisEngine:
         ):
 
             if timeframe not in timeframes:
+
                 timeframes[
                     timeframe
                 ] = {
@@ -1760,6 +1736,7 @@ class MasterAnalysisEngine:
             mtf,
             dict,
         ):
+
             mtf = {
                 "direction":
                     "NEUTRAL",
@@ -1780,7 +1757,7 @@ class MasterAnalysisEngine:
         )
 
         # -------------------------------------------------
-        # RAW DERIVATIVES
+        # DERIVATIVES
         # -------------------------------------------------
 
         raw_derivatives = raw.get(
@@ -1793,10 +1770,6 @@ class MasterAnalysisEngine:
             dict,
         ):
             raw_derivatives = {}
-
-        # -------------------------------------------------
-        # DERIVATIVES
-        # -------------------------------------------------
 
         derivatives = (
             self.analyze_derivatives(
@@ -1830,7 +1803,7 @@ class MasterAnalysisEngine:
         )
 
         # -------------------------------------------------
-        # LEVELS
+        # TRADE LEVELS
         # -------------------------------------------------
 
         levels = (
@@ -1855,8 +1828,7 @@ class MasterAnalysisEngine:
         ).upper()
 
         levels_valid = (
-            direction
-            in {
+            direction in {
                 "LONG",
                 "SHORT",
             }
@@ -1906,6 +1878,7 @@ class MasterAnalysisEngine:
             confidence_result,
             dict,
         ):
+
             confidence_result = {
                 "success": False,
                 "direction":
@@ -1937,6 +1910,7 @@ class MasterAnalysisEngine:
         )
 
         if not publishable_mtf:
+
             confidence = min(
                 confidence,
                 84.99,
@@ -1961,16 +1935,12 @@ class MasterAnalysisEngine:
             )
         )
 
-        # 4H conflict is a penalty,
-        # not a Python-scope failure.
         if (
-            direction
-            in {
+            direction in {
                 "LONG",
                 "SHORT",
             }
-            and four_hour_direction
-            in {
+            and four_hour_direction in {
                 "LONG",
                 "SHORT",
             }
@@ -1984,8 +1954,7 @@ class MasterAnalysisEngine:
             )
 
         publishable = (
-            direction
-            in {
+            direction in {
                 "LONG",
                 "SHORT",
             }
@@ -2016,19 +1985,20 @@ class MasterAnalysisEngine:
             ):
                 continue
 
-            item_reasons = item.get(
+            timeframe_reasons = item.get(
                 "reasons",
                 [],
             )
 
             if isinstance(
-                item_reasons,
+                timeframe_reasons,
                 list,
             ):
+
                 reasons.extend(
                     str(x)
                     for x
-                    in item_reasons
+                    in timeframe_reasons
                 )
 
         derivative_reasons = (
@@ -2042,6 +2012,7 @@ class MasterAnalysisEngine:
             derivative_reasons,
             list,
         ):
+
             reasons.extend(
                 str(x)
                 for x
@@ -2054,6 +2025,7 @@ class MasterAnalysisEngine:
             )
             == direction
         ):
+
             reasons.append(
                 "Order book supports the direction."
             )
@@ -2064,44 +2036,50 @@ class MasterAnalysisEngine:
             )
             == direction
         ):
+
             reasons.append(
                 "Liquidation flow supports the direction."
             )
 
         if publishable_mtf:
+
             reasons.append(
                 "15m, 1H and 4H are aligned."
             )
+
         else:
+
             reasons.append(
                 "Strict MTF alignment has not been confirmed."
             )
 
         if risk_reward >= 2.0:
+
             reasons.append(
                 f"Risk/reward is {risk_reward:.2f}R."
             )
 
         if not levels_valid:
+
             reasons.append(
                 "Trade levels failed the minimum risk gate."
             )
 
         if (
-            four_hour_direction
-            in {
+            four_hour_direction in {
                 "LONG",
                 "SHORT",
             }
             and four_hour_direction
             != direction
         ):
+
             reasons.append(
                 "4H conflicts with the selected direction."
             )
 
         # -------------------------------------------------
-        # FACTOR SCORES
+        # FACTORS
         # -------------------------------------------------
 
         factor_scores = (
@@ -2118,19 +2096,23 @@ class MasterAnalysisEngine:
             factor_scores,
             dict,
         ):
+
             factor_scores = {}
 
         factor_scores = {
-            str(key): round(
-                self._float(value),
-                2,
-            )
+            str(key):
+                round(
+                    self._float(
+                        value
+                    ),
+                    2,
+                )
             for key, value
             in factor_scores.items()
         }
 
         # -------------------------------------------------
-        # 24-POINT ANALYSIS
+        # 24 POINTS
         # -------------------------------------------------
 
         points: dict[
@@ -2138,7 +2120,7 @@ class MasterAnalysisEngine:
             dict[str, Any],
         ] = {}
 
-        confirmation_count = 0
+        market_confirmation_count = 0
 
         def add_point(
             number: int,
@@ -2148,13 +2130,14 @@ class MasterAnalysisEngine:
             point_direction: str = "NEUTRAL",
         ) -> None:
 
-            nonlocal confirmation_count
+            nonlocal market_confirmation_count
 
             if (
                 number <= 20
                 and status == "CONFIRMED"
             ):
-                confirmation_count += 1
+
+                market_confirmation_count += 1
 
             point = {
                 "number":
@@ -2168,27 +2151,27 @@ class MasterAnalysisEngine:
             }
 
             if value is not None:
-                point["value"] = value
+                point[
+                    "value"
+                ] = value
 
             points[
                 str(number)
             ] = point
 
-        # 1 Market Regime
+        # 1
         add_point(
             1,
             "Market Regime",
             "CONFIRMED"
-            if (
-                four_hour_direction
-                == direction
-            )
+            if four_hour_direction
+            == direction
             else "CONFLICT",
             four_hour_direction,
             four_hour_direction,
         )
 
-        # 2 Market Structure
+        # 2
         one_hour = timeframes.get(
             "1h",
             {},
@@ -2234,7 +2217,7 @@ class MasterAnalysisEngine:
             one_hour_structure_direction,
         )
 
-        # 3 MTF
+        # 3
         add_point(
             3,
             "Multi-Timeframe Confirmation",
@@ -2251,7 +2234,7 @@ class MasterAnalysisEngine:
             ),
         )
 
-        # 4 Entry Location
+        # 4
         fifteen = timeframes.get(
             "15m",
             {},
@@ -2324,7 +2307,7 @@ class MasterAnalysisEngine:
             else "NEUTRAL",
         )
 
-        # 5 Liquidity Sweep
+        # 5
         add_point(
             5,
             "Liquidity Sweep",
@@ -2332,7 +2315,7 @@ class MasterAnalysisEngine:
             "PENDING_ENGINE",
         )
 
-        # 6 VWAP
+        # 6
         fifteen_indicators = (
             fifteen.get(
                 "indicators",
@@ -2361,12 +2344,15 @@ class MasterAnalysisEngine:
         )
 
         if direction == "LONG":
+
             vwap_ok = (
                 price > 0
                 and vwap > 0
                 and price > vwap
             )
+
         else:
+
             vwap_ok = (
                 price > 0
                 and vwap > 0
@@ -2385,7 +2371,7 @@ class MasterAnalysisEngine:
             else "NEUTRAL",
         )
 
-        # 7 ATR
+        # 7
         atr_percent = self._float(
             fifteen_indicators.get(
                 "atr_percent",
@@ -2402,7 +2388,7 @@ class MasterAnalysisEngine:
             atr_percent,
         )
 
-        # 8 Momentum
+        # 8
         momentum = self._float(
             fifteen_indicators.get(
                 "momentum",
@@ -2434,7 +2420,7 @@ class MasterAnalysisEngine:
             else "NEUTRAL",
         )
 
-        # 9 Divergence
+        # 9
         add_point(
             9,
             "Divergence",
@@ -2442,7 +2428,7 @@ class MasterAnalysisEngine:
             "PENDING_ENGINE",
         )
 
-        # 10 Breakout
+        # 10
         breakout = fifteen_indicators.get(
             "breakout",
             {},
@@ -2454,11 +2440,9 @@ class MasterAnalysisEngine:
         ):
             breakout = {}
 
-        breakout_direction = (
-            self._direction(
-                breakout.get(
-                    "direction"
-                )
+        breakout_direction = self._direction(
+            breakout.get(
+                "direction"
             )
         )
 
@@ -2485,7 +2469,7 @@ class MasterAnalysisEngine:
             breakout_direction,
         )
 
-        # 11 Retest
+        # 11
         add_point(
             11,
             "Retest",
@@ -2493,7 +2477,7 @@ class MasterAnalysisEngine:
             "PENDING_ENGINE",
         )
 
-        # 12 Derivatives
+        # 12
         derivatives_ok = (
             derivatives.get(
                 "direction"
@@ -2524,7 +2508,7 @@ class MasterAnalysisEngine:
             ),
         )
 
-        # 13 Liquidations
+        # 13
         liquidations_ok = (
             liquidations.get(
                 "direction"
@@ -2555,7 +2539,7 @@ class MasterAnalysisEngine:
             ),
         )
 
-        # 14 Order Book
+        # 14
         order_book_ok = (
             order_book.get(
                 "direction"
@@ -2586,7 +2570,7 @@ class MasterAnalysisEngine:
             ),
         )
 
-        # 15 Tradeability
+        # 15
         add_point(
             15,
             "Tradeability",
@@ -2597,7 +2581,7 @@ class MasterAnalysisEngine:
             direction,
         )
 
-        # 16 News
+        # 16
         add_point(
             16,
             "News / Event Risk",
@@ -2605,7 +2589,7 @@ class MasterAnalysisEngine:
             "NEWS_PROVIDER_NOT_CONNECTED",
         )
 
-        # 17 BTC context
+        # 17
         add_point(
             17,
             "BTC Market Context",
@@ -2613,7 +2597,7 @@ class MasterAnalysisEngine:
             "BTC_CONTEXT_PENDING",
         )
 
-        # 18 Relative strength
+        # 18
         add_point(
             18,
             "Relative Strength",
@@ -2621,7 +2605,7 @@ class MasterAnalysisEngine:
             "RELATIVE_STRENGTH_PENDING",
         )
 
-        # 19 Risk / Reward
+        # 19
         add_point(
             19,
             "Risk / Reward",
@@ -2632,21 +2616,18 @@ class MasterAnalysisEngine:
             direction,
         )
 
-        # 20 Stop quality
+        # 20
         add_point(
             20,
             "Stop Quality",
             "CONFIRMED"
-            if (
-                stop_quality
-                == "VALID"
-            )
+            if stop_quality == "VALID"
             else "REJECTED",
             stop_quality,
             direction,
         )
 
-        # 21 Position sizing
+        # 21
         add_point(
             21,
             "Position Sizing",
@@ -2654,7 +2635,7 @@ class MasterAnalysisEngine:
             "ACCOUNT_RISK_PENDING",
         )
 
-        # 22 Portfolio risk
+        # 22
         add_point(
             22,
             "Portfolio Risk",
@@ -2662,7 +2643,7 @@ class MasterAnalysisEngine:
             "PORTFOLIO_STATE_PENDING",
         )
 
-        # 23 Execution
+        # 23
         add_point(
             23,
             "Execution Quality",
@@ -2670,7 +2651,7 @@ class MasterAnalysisEngine:
             "EXECUTION_ENGINE_PENDING",
         )
 
-        # 24 Freshness
+        # 24
         add_point(
             24,
             "Signal Freshness",
@@ -2679,7 +2660,7 @@ class MasterAnalysisEngine:
         )
 
         # -------------------------------------------------
-        # FINAL CONFIDENCE
+        # FINAL CONFIDENCE RESULT
         # -------------------------------------------------
 
         confidence_result = dict(
@@ -2797,7 +2778,7 @@ class MasterAnalysisEngine:
                 "points":
                     points,
                 "market_confirmation_count":
-                    confirmation_count,
+                    market_confirmation_count,
                 "market_confirmation_total":
                     20,
                 "risk_gate_count":
