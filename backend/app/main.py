@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -11,8 +12,14 @@ from app.api.trade_routes import router as trade_router
 from app.api.ai_routes import router as ai_router
 from app.api.dashboard_routes import router as dashboard_router
 from app.api.scanner_routes import router as scanner_router
+from app.api.liquidation_routes import (
+    router as liquidation_router,
+)
 
 from app.services.auto_scanner import auto_scanner
+from app.services.liquidation_engine import (
+    liquidation_engine,
+)
 
 
 # =========================================================
@@ -38,10 +45,11 @@ ASSETS_DIR = FRONTEND_DIR / "assets"
 app = FastAPI(
     title="RR Trader Live Crypto Trading Scanner",
     description=(
-        "AI-powered crypto market scanner "
-        "and trading analysis platform."
+        "AI-powered crypto market scanner, "
+        "multi-exchange analysis and "
+        "liquidation intelligence platform."
     ),
-    version="2.1.0",
+    version="2.2.0",
 )
 
 
@@ -50,6 +58,7 @@ app = FastAPI(
 # =========================================================
 
 if PAGES_DIR.is_dir():
+
     app.mount(
         "/pages",
         StaticFiles(
@@ -61,6 +70,7 @@ if PAGES_DIR.is_dir():
 
 
 if SERVICES_DIR.is_dir():
+
     app.mount(
         "/frontend-services",
         StaticFiles(
@@ -71,6 +81,7 @@ if SERVICES_DIR.is_dir():
 
 
 if CHARTS_DIR.is_dir():
+
     app.mount(
         "/frontend-charts",
         StaticFiles(
@@ -81,6 +92,7 @@ if CHARTS_DIR.is_dir():
 
 
 if COMPONENTS_DIR.is_dir():
+
     app.mount(
         "/frontend-components",
         StaticFiles(
@@ -91,6 +103,7 @@ if COMPONENTS_DIR.is_dir():
 
 
 if ASSETS_DIR.is_dir():
+
     app.mount(
         "/assets",
         StaticFiles(
@@ -106,7 +119,9 @@ if ASSETS_DIR.is_dir():
 
 @app.get("/")
 async def root():
+
     if FRONTEND_INDEX.is_file():
+
         return FileResponse(
             str(FRONTEND_INDEX),
             media_type="text/html",
@@ -115,7 +130,9 @@ async def root():
     return {
         "success": False,
         "error": "Dashboard frontend not found.",
-        "frontend_path": str(FRONTEND_INDEX),
+        "frontend_path": str(
+            FRONTEND_INDEX
+        ),
     }
 
 
@@ -125,7 +142,9 @@ async def root():
 
 @app.get("/dashboard")
 async def dashboard():
+
     if FRONTEND_INDEX.is_file():
+
         return FileResponse(
             str(FRONTEND_INDEX),
             media_type="text/html",
@@ -134,7 +153,9 @@ async def dashboard():
     return {
         "success": False,
         "error": "Dashboard frontend not found.",
-        "frontend_path": str(FRONTEND_INDEX),
+        "frontend_path": str(
+            FRONTEND_INDEX
+        ),
     }
 
 
@@ -145,28 +166,73 @@ async def dashboard():
 @app.get("/health")
 async def health():
 
-    scanner_state = {}
+    scanner_state: dict[str, Any] = {}
+    liquidation_state: dict[str, Any] = {}
+
+    # -----------------------------------------------------
+    # Scanner status
+    # -----------------------------------------------------
 
     try:
-        scanner_state = auto_scanner.snapshot()
+
+        scanner_state = (
+            auto_scanner.snapshot()
+        )
+
     except Exception as exc:
+
         scanner_state = {
             "running": False,
             "error": str(exc),
         }
 
+    # -----------------------------------------------------
+    # Liquidation engine status
+    # -----------------------------------------------------
+
+    try:
+
+        liquidation_state = (
+            liquidation_engine.snapshot()
+        )
+
+    except Exception as exc:
+
+        liquidation_state = {
+            "running": False,
+            "error": str(exc),
+        }
+
+    # -----------------------------------------------------
+    # Response
+    # -----------------------------------------------------
+
     return {
         "success": True,
         "app": "RR Trader",
         "status": "healthy",
-        "version": "2.1.0",
+        "version": "2.2.0",
+
         "frontend": {
-            "directory_exists": FRONTEND_DIR.is_dir(),
-            "index_exists": FRONTEND_INDEX.is_file(),
-            "pages_exists": PAGES_DIR.is_dir(),
-            "charts_exists": CHARTS_DIR.is_dir(),
+            "directory_exists": (
+                FRONTEND_DIR.is_dir()
+            ),
+            "index_exists": (
+                FRONTEND_INDEX.is_file()
+            ),
+            "pages_exists": (
+                PAGES_DIR.is_dir()
+            ),
+            "charts_exists": (
+                CHARTS_DIR.is_dir()
+            ),
         },
+
         "scanner": scanner_state,
+
+        "liquidation_engine": (
+            liquidation_state
+        ),
     }
 
 
@@ -174,11 +240,20 @@ async def health():
 # API ROUTERS
 # =========================================================
 
+# ---------------------------------------------------------
+# Main market / analysis API
+# ---------------------------------------------------------
+
 app.include_router(
     main_router,
     prefix="/api",
     tags=["Markets"],
 )
+
+
+# ---------------------------------------------------------
+# Trade / risk API
+# ---------------------------------------------------------
 
 app.include_router(
     trade_router,
@@ -186,11 +261,21 @@ app.include_router(
     tags=["Trade Engine"],
 )
 
+
+# ---------------------------------------------------------
+# AI API
+# ---------------------------------------------------------
+
 app.include_router(
     ai_router,
     prefix="/api",
     tags=["AI"],
 )
+
+
+# ---------------------------------------------------------
+# Dashboard API
+# ---------------------------------------------------------
 
 app.include_router(
     dashboard_router,
@@ -198,10 +283,26 @@ app.include_router(
     tags=["Dashboard"],
 )
 
+
+# ---------------------------------------------------------
+# Scanner API
+# ---------------------------------------------------------
+
 app.include_router(
     scanner_router,
     prefix="/api",
     tags=["Scanner"],
+)
+
+
+# ---------------------------------------------------------
+# Liquidation Intelligence API
+# ---------------------------------------------------------
+
+app.include_router(
+    liquidation_router,
+    prefix="/api",
+    tags=["Liquidation Intelligence"],
 )
 
 
@@ -212,33 +313,37 @@ app.include_router(
 @app.on_event("startup")
 async def startup_event():
 
-    print("=" * 60)
+    print("=" * 70)
     print("RR TRADER STARTING")
-    print("=" * 60)
+    print("=" * 70)
 
     print(
         f"Project root: {PROJECT_ROOT}"
     )
 
     print(
-        f"Frontend directory: "
-        f"{FRONTEND_DIR.is_dir()}"
+        "Frontend directory:",
+        FRONTEND_DIR.is_dir(),
     )
 
     print(
-        f"Frontend index: "
-        f"{FRONTEND_INDEX.is_file()}"
+        "Frontend index:",
+        FRONTEND_INDEX.is_file(),
     )
 
     print(
-        f"Pages directory: "
-        f"{PAGES_DIR.is_dir()}"
+        "Pages directory:",
+        PAGES_DIR.is_dir(),
     )
 
     print(
-        f"Charts directory: "
-        f"{CHARTS_DIR.is_dir()}"
+        "Charts directory:",
+        CHARTS_DIR.is_dir(),
     )
+
+    # =====================================================
+    # AUTO MARKET SCANNER
+    # =====================================================
 
     try:
 
@@ -259,7 +364,52 @@ async def startup_event():
             exc,
         )
 
-    print("=" * 60)
+    # =====================================================
+    # LIQUIDATION INTELLIGENCE ENGINE
+    # =====================================================
+
+    try:
+
+        await liquidation_engine.start()
+
+        print(
+            "RR Liquidation Intelligence Engine started."
+        )
+
+        print(
+            "Liquidation providers:"
+        )
+
+        print(
+            "  - Binance"
+        )
+
+        print(
+            "  - Bitget"
+        )
+
+        print(
+            "  - OKX"
+        )
+
+        print(
+            "  - MEXC estimated mode"
+        )
+
+    except Exception as exc:
+
+        print(
+            "Liquidation engine startup warning:",
+            exc,
+        )
+
+    # =====================================================
+    # FINAL STATUS
+    # =====================================================
+
+    print("=" * 70)
+    print("RR TRADER BACKEND READY")
+    print("=" * 70)
 
 
 # =========================================================
@@ -269,13 +419,21 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
 
-    print(
-        "Stopping RR Trader scanner..."
-    )
+    print("=" * 70)
+    print("RR TRADER SHUTDOWN")
+    print("=" * 70)
+
+    # =====================================================
+    # STOP AUTO SCANNER
+    # =====================================================
 
     try:
 
         await auto_scanner.stop()
+
+        print(
+            "RR Trader scanner stopped."
+        )
 
     except Exception as exc:
 
@@ -284,6 +442,27 @@ async def shutdown_event():
             exc,
         )
 
+    # =====================================================
+    # STOP LIQUIDATION ENGINE
+    # =====================================================
+
+    try:
+
+        await liquidation_engine.stop()
+
+        print(
+            "RR Liquidation Intelligence Engine stopped."
+        )
+
+    except Exception as exc:
+
+        print(
+            "Liquidation engine shutdown warning:",
+            exc,
+        )
+
     print(
         "RR Trader backend stopped."
     )
+
+    print("=" * 70)
