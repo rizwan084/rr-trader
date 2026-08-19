@@ -16,17 +16,155 @@ from app.services.master_analysis import (
     master_analysis_engine,
 )
 
+# New multi-exchange client
+from app.clients.binance import (
+    BinanceClient,
+    SUPPORTED_TIMEFRAMES,
+)
+
+
+# =========================================================
+# RR TRADER MULTI-EXCHANGE AUTO SCANNER
+#
+# Exchanges:
+#   Binance
+#   Bitget
+#   MEXC
+#   OKX
+#
+# Timeframes:
+#   5m
+#   15m
+#   30m
+#   45m
+#   1h
+#   4h
+#   1d
+#
+# Scan interval:
+#   60 seconds
+#
+# IMPORTANT:
+# The existing 24-point master analysis remains the
+# decision engine. This scanner now builds the multi-
+# exchange / multi-timeframe market context around it.
+# =========================================================
+
+
+EXCHANGES = (
+    "binance",
+    "bitget",
+    "mexc",
+    "okx",
+)
+
+
+TIMEFRAMES = (
+    "5m",
+    "15m",
+    "30m",
+    "45m",
+    "1h",
+    "4h",
+    "1d",
+)
+
+
+MIN_SCAN_SECONDS = 60
+
+
+# =========================================================
+# SAFE NUMBER
+# =========================================================
+
+
+def safe_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
+
+    try:
+        if value is None:
+            return default
+
+        return float(value)
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return default
+
+
+# =========================================================
+# SYMBOL NORMALIZER
+# =========================================================
+
+
+def clean_symbol(
+    symbol: Any,
+) -> str:
+
+    return (
+        str(symbol or "")
+        .upper()
+        .replace(
+            "/",
+            "",
+        )
+        .replace(
+            "-PERP",
+            "",
+        )
+        .replace(
+            "_PERP",
+            "",
+        )
+        .replace(
+            "-USDT-SWAP",
+            "USDT",
+        )
+        .replace(
+            "_USDT",
+            "USDT",
+        )
+        .strip()
+    )
+
+
+# =========================================================
+# AUTO SCANNER
+# =========================================================
+
 
 class AutoScanner:
-    """
-    Continuous RR Trader scanner.
 
-    - Full Binance market screening
-    - Top candidates
-    - Deep 15m / 1H / 4H analysis
-    - Automatic refresh
-    - One failed symbol does not break the scan
-    - Latest successful results remain available
+    """
+    RR Trader continuous scanner.
+
+    Existing behavior:
+        Full Binance market screening
+        Top candidates
+        24-point master analysis
+        Automatic refresh
+
+    New behavior:
+        Binance
+        Bitget
+        MEXC
+        OKX
+
+        5m
+        15m
+        30m
+        45m
+        1h
+        4h
+        1d
+
+    The scanner never lets one exchange or one symbol
+    failure stop the complete cycle.
     """
 
     def __init__(
@@ -39,10 +177,15 @@ class AutoScanner:
         self.market = (
             str(
                 market
-            ).lower().strip()
+            )
+            .lower()
+            .strip()
         )
 
-        # Always analyze at least 6 candidates.
+        # -------------------------------------------------
+        # Candidate depth
+        # -------------------------------------------------
+
         self.scan_limit = max(
             1,
             int(
@@ -52,9 +195,12 @@ class AutoScanner:
             ),
         )
 
-        # Minimum automatic scan interval = 60 seconds.
+        # -------------------------------------------------
+        # Minimum interval = 60 seconds
+        # -------------------------------------------------
+
         self.refresh_seconds = max(
-            60,
+            MIN_SCAN_SECONDS,
             int(
                 refresh_seconds
                 if refresh_seconds is not None
@@ -62,9 +208,25 @@ class AutoScanner:
             ),
         )
 
+        # -------------------------------------------------
+        # Existing Binance scanner
+        # -------------------------------------------------
+
         self.scanner = MarketScanner(
             market_data_service
         )
+
+        # -------------------------------------------------
+        # Multi-exchange client
+        # -------------------------------------------------
+
+        self.exchange_client = (
+            BinanceClient()
+        )
+
+        # -------------------------------------------------
+        # Background task
+        # -------------------------------------------------
 
         self._task: (
             asyncio.Task[None]
@@ -73,7 +235,13 @@ class AutoScanner:
 
         self._running = False
 
-        self._scan_lock = asyncio.Lock()
+        self._scan_lock = (
+            asyncio.Lock()
+        )
+
+        # -------------------------------------------------
+        # State
+        # -------------------------------------------------
 
         self._last_scan: dict[
             str,
@@ -104,6 +272,240 @@ class AutoScanner:
 
         self._error_count = 0
 
+        # -------------------------------------------------
+        # Exchange status
+        # -------------------------------------------------
+
+        self._exchange_status: dict[
+            str,
+            dict[str, Any],
+        ] = {
+            exchange: {
+                "available": False,
+                "symbols": 0,
+                "error": None,
+            }
+            for exchange in EXCHANGES
+        }
+
+    # =====================================================
+    # MULTI-EXCHANGE MARKET CONTEXT
+    # =====================================================
+
+    async def _load_exchange_context(
+        self,
+        symbol: str,
+    ) -> dict[str, Any]:
+
+        """
+        Load the same symbol from all exchanges
+        and all requested timeframes.
+
+        This is intentionally fault tolerant.
+        If one exchange fails, the others continue.
+        """
+
+        symbol = clean_symbol(
+            symbol
+        )
+
+        result: dict[
+            str,
+            Any,
+        ] = {
+            "symbol": symbol,
+            "exchanges": {},
+        }
+
+        # -------------------------------------------------
+        # Exchange/timeframe worker
+        # -------------------------------------------------
+
+        async def load_one(
+            exchange: str,
+            timeframe: str,
+        ) -> tuple[
+            str,
+            str,
+            Any,
+        ]:
+
+            try:
+
+                candles = (
+                    await self.exchange_client.exchange_klines(
+                        exchange=exchange,
+                        symbol=symbol,
+                        interval=timeframe,
+                        market=self.market,
+                        limit=120,
+                    )
+                )
+
+                return (
+                    exchange,
+                    timeframe,
+                    {
+                        "success": True,
+                        "candle_count": (
+                            len(candles)
+                            if isinstance(
+                                candles,
+                                list,
+                            )
+                            else 0
+                        ),
+                        "candles": candles,
+                    },
+                )
+
+            except Exception as exc:
+
+                return (
+                    exchange,
+                    timeframe,
+                    {
+                        "success": False,
+                        "candle_count": 0,
+                        "candles": [],
+                        "error": str(exc),
+                    },
+                )
+
+        jobs = [
+            load_one(
+                exchange,
+                timeframe,
+            )
+            for exchange in EXCHANGES
+            for timeframe in TIMEFRAMES
+        ]
+
+        responses = await asyncio.gather(
+            *jobs,
+            return_exceptions=False,
+        )
+
+        # -------------------------------------------------
+        # Build nested structure
+        # -------------------------------------------------
+
+        for (
+            exchange,
+            timeframe,
+            payload,
+        ) in responses:
+
+            if exchange not in result[
+                "exchanges"
+            ]:
+
+                result[
+                    "exchanges"
+                ][exchange] = {}
+
+            result[
+                "exchanges"
+            ][exchange][
+                timeframe
+            ] = payload
+
+        # -------------------------------------------------
+        # Summary
+        # -------------------------------------------------
+
+        exchange_summary = {}
+
+        for exchange in EXCHANGES:
+
+            timeframes = result[
+                "exchanges"
+            ].get(
+                exchange,
+                {},
+            )
+
+            successful = sum(
+                1
+                for item in timeframes.values()
+                if item.get(
+                    "success",
+                    False,
+                )
+            )
+
+            exchange_summary[
+                exchange
+            ] = {
+                "success": (
+                    successful > 0
+                ),
+                "timeframes_loaded":
+                    successful,
+                "total_timeframes":
+                    len(TIMEFRAMES),
+            }
+
+        result[
+            "exchange_summary"
+        ] = exchange_summary
+
+        return result
+
+    # =====================================================
+    # BUILD MULTI-EXCHANGE CANDIDATE
+    # =====================================================
+
+    async def _enrich_candidate(
+        self,
+        candidate: dict[str, Any],
+    ) -> dict[str, Any]:
+
+        if not isinstance(
+            candidate,
+            dict,
+        ):
+
+            return candidate
+
+        symbol = clean_symbol(
+            candidate.get(
+                "symbol"
+            )
+        )
+
+        if not symbol:
+
+            return candidate
+
+        context = (
+            await self._load_exchange_context(
+                symbol
+            )
+        )
+
+        enriched = dict(
+            candidate
+        )
+
+        enriched[
+            "multi_exchange"
+        ] = context
+
+        enriched[
+            "supported_exchanges"
+        ] = list(
+            EXCHANGES
+        )
+
+        enriched[
+            "analysis_timeframes"
+        ] = list(
+            TIMEFRAMES
+        )
+
+        return enriched
+
     # =====================================================
     # SINGLE SCAN
     # =====================================================
@@ -112,7 +514,9 @@ class AutoScanner:
         self,
     ) -> dict[str, Any]:
 
-        async with self._scan_lock:
+        async with (
+            self._scan_lock
+        ):
 
             started_at = (
                 time.monotonic()
@@ -128,9 +532,10 @@ class AutoScanner:
 
             try:
 
-                # -------------------------------------------------
-                # Stage 1
-                # -------------------------------------------------
+                # =========================================
+                # STAGE 1
+                # Binance full-market candidate discovery
+                # =========================================
 
                 universe = (
                     await self.scanner.top_candidates(
@@ -145,7 +550,8 @@ class AutoScanner:
                 ):
 
                     raise RuntimeError(
-                        "Scanner returned invalid universe data."
+                        "Scanner returned invalid "
+                        "universe data."
                     )
 
                 candidates = universe.get(
@@ -157,11 +563,64 @@ class AutoScanner:
                     candidates,
                     list,
                 ):
+
                     candidates = []
 
-                # -------------------------------------------------
-                # Stage 2
-                # -------------------------------------------------
+                # =========================================
+                # STAGE 2
+                # Multi-exchange enrichment
+                # =========================================
+
+                async def enrich_safe(
+                    candidate: dict[str, Any],
+                ) -> dict[str, Any]:
+
+                    try:
+
+                        return (
+                            await self._enrich_candidate(
+                                candidate
+                            )
+                        )
+
+                    except Exception as exc:
+
+                        enriched = dict(
+                            candidate
+                        )
+
+                        enriched[
+                            "multi_exchange"
+                        ] = {
+                            "error":
+                                str(exc),
+                            "exchanges":
+                                {},
+                        }
+
+                        return enriched
+
+                enriched_candidates = (
+                    await asyncio.gather(
+                        *[
+                            enrich_safe(
+                                candidate
+                            )
+                            for candidate
+                            in candidates
+                            if isinstance(
+                                candidate,
+                                dict,
+                            )
+                        ],
+                        return_exceptions=False,
+                    )
+                )
+
+                # =========================================
+                # STAGE 3
+                # Existing 24-point analysis
+                # =========================================
 
                 async def analyze_candidate(
                     candidate: dict[str, Any],
@@ -178,12 +637,12 @@ class AutoScanner:
                                 "Invalid candidate.",
                         }
 
-                    symbol = str(
+                    symbol = clean_symbol(
                         candidate.get(
                             "symbol",
                             "",
                         )
-                    ).upper().strip()
+                    )
 
                     if not symbol:
 
@@ -203,33 +662,76 @@ class AutoScanner:
                             )
                         )
 
+                        # ---------------------------------
+                        # Attach multi-exchange context
+                        # ---------------------------------
+
+                        if not isinstance(
+                            analysis,
+                            dict,
+                        ):
+
+                            analysis = {}
+
+                        result = dict(
+                            analysis
+                        )
+
+                        result[
+                            "symbol"
+                        ] = symbol
+
+                        result[
+                            "exchange_mode"
+                        ] = (
+                            "MULTI_EXCHANGE"
+                        )
+
+                        result[
+                            "exchanges"
+                        ] = list(
+                            EXCHANGES
+                        )
+
+                        result[
+                            "timeframes"
+                        ] = list(
+                            TIMEFRAMES
+                        )
+
+                        result[
+                            "multi_exchange_data"
+                        ] = candidate.get(
+                            "multi_exchange",
+                            {},
+                        )
+
+                        result[
+                            "candidate"
+                        ] = candidate
+
                         return {
                             "success": True,
-                            "symbol":
-                                symbol,
+                            "symbol": symbol,
                             "candidate":
                                 candidate,
                             "analysis":
-                                analysis,
+                                result,
                         }
 
                     except Exception as exc:
 
-                        # One symbol failure must not
-                        # terminate the complete scan.
                         return {
                             "success": False,
-                            "symbol":
-                                symbol,
+                            "symbol": symbol,
                             "candidate":
                                 candidate,
-                            "error":
-                                str(exc),
+                            "error": str(exc),
                         }
 
-                # -------------------------------------------------
-                # Concurrent analysis
-                # -------------------------------------------------
+                # -----------------------------------------
+                # Deep analysis
+                # -----------------------------------------
 
                 results = await asyncio.gather(
                     *[
@@ -237,7 +739,7 @@ class AutoScanner:
                             candidate
                         )
                         for candidate
-                        in candidates
+                        in enriched_candidates
                     ],
                     return_exceptions=False,
                 )
@@ -298,25 +800,24 @@ class AutoScanner:
                         analysis
                     )
 
-                # -------------------------------------------------
+                # =========================================
+                # STAGE 4
                 # Ranking
-                # -------------------------------------------------
+                # =========================================
 
                 analyses.sort(
                     key=lambda item: (
-                        float(
+                        safe_float(
                             item.get(
                                 "confidence",
                                 0,
                             )
-                            or 0
                         ),
-                        float(
+                        safe_float(
                             item.get(
                                 "risk_reward",
                                 0,
                             )
-                            or 0
                         ),
                     ),
                     reverse=True,
@@ -324,8 +825,7 @@ class AutoScanner:
 
                 publishable = [
                     item
-                    for item
-                    in analyses
+                    for item in analyses
                     if item.get(
                         "publishable",
                         False,
@@ -334,23 +834,50 @@ class AutoScanner:
 
                 publishable.sort(
                     key=lambda item: (
-                        float(
+                        safe_float(
                             item.get(
                                 "confidence",
                                 0,
                             )
-                            or 0
                         ),
-                        float(
+                        safe_float(
                             item.get(
                                 "risk_reward",
                                 0,
                             )
-                            or 0
                         ),
                     ),
                     reverse=True,
                 )
+
+                # =========================================
+                # STAGE 5
+                # Best opportunity
+                # =========================================
+
+                best = (
+                    publishable[0]
+                    if publishable
+                    else (
+                        analyses[0]
+                        if analyses
+                        else None
+                    )
+                )
+
+                # =========================================
+                # EXCHANGE STATUS
+                # =========================================
+
+                exchange_status = (
+                    self._calculate_exchange_status(
+                        enriched_candidates
+                    )
+                )
+
+                # =========================================
+                # FINAL RESULT
+                # =========================================
 
                 elapsed = (
                     time.monotonic()
@@ -358,14 +885,13 @@ class AutoScanner:
                 )
 
                 result = {
-                    "success":
-                        True,
+                    "success": True,
 
                     "market":
                         self.market,
 
                     "universe_mode":
-                        "FULL_MARKET",
+                        "FULL_MARKET_MULTI_EXCHANGE",
 
                     "timestamp":
                         scan_timestamp.isoformat(),
@@ -393,7 +919,7 @@ class AutoScanner:
 
                     "candidate_count":
                         len(
-                            candidates
+                            enriched_candidates
                         ),
 
                     "deep_analyzed":
@@ -411,15 +937,29 @@ class AutoScanner:
                             publishable
                         ),
 
+                    "best":
+                        best,
+
+                    "exchanges":
+                        list(
+                            EXCHANGES
+                        ),
+
+                    "timeframes":
+                        list(
+                            TIMEFRAMES
+                        ),
+
+                    "exchange_status":
+                        exchange_status,
+
                     "core_timeframes":
-                        [
-                            "15m",
-                            "1h",
-                            "4h",
-                        ],
+                        list(
+                            TIMEFRAMES
+                        ),
 
                     "candidates":
-                        candidates,
+                        enriched_candidates,
 
                     "analyses":
                         analyses,
@@ -431,7 +971,9 @@ class AutoScanner:
                         failures,
                 }
 
-                self._last_scan = result
+                self._last_scan = (
+                    result
+                )
 
                 self._last_successful_scan = (
                     dict(result)
@@ -471,7 +1013,16 @@ class AutoScanner:
                     "error":
                         str(exc),
 
-                    # Preserve last good results.
+                    "exchanges":
+                        list(
+                            EXCHANGES
+                        ),
+
+                    "timeframes":
+                        list(
+                            TIMEFRAMES
+                        ),
+
                     "last_successful":
                         dict(
                             self._last_successful_scan
@@ -489,6 +1040,115 @@ class AutoScanner:
                 return dict(
                     failed_result
                 )
+
+    # =====================================================
+    # EXCHANGE STATUS
+    # =====================================================
+
+    def _calculate_exchange_status(
+        self,
+        candidates: list[
+            dict[str, Any]
+        ],
+    ) -> dict[
+        str,
+        Any,
+    ]:
+
+        status = {
+            exchange: {
+                "available": False,
+                "symbols": 0,
+                "timeframes_loaded": 0,
+                "errors": 0,
+            }
+            for exchange in EXCHANGES
+        }
+
+        for candidate in candidates:
+
+            context = candidate.get(
+                "multi_exchange",
+                {},
+            )
+
+            exchanges = context.get(
+                "exchanges",
+                {},
+            )
+
+            if not isinstance(
+                exchanges,
+                dict,
+            ):
+
+                continue
+
+            for exchange in EXCHANGES:
+
+                timeframe_data = (
+                    exchanges.get(
+                        exchange,
+                        {},
+                    )
+                )
+
+                if not isinstance(
+                    timeframe_data,
+                    dict,
+                ):
+
+                    continue
+
+                for payload in (
+                    timeframe_data.values()
+                ):
+
+                    if not isinstance(
+                        payload,
+                        dict,
+                    ):
+
+                        continue
+
+                    if payload.get(
+                        "success",
+                        False,
+                    ):
+
+                        status[
+                            exchange
+                        ][
+                            "available"
+                        ] = True
+
+                        status[
+                            exchange
+                        ][
+                            "timeframes_loaded"
+                        ] += 1
+
+                    else:
+
+                        status[
+                            exchange
+                        ][
+                            "errors"
+                        ] += 1
+
+                if status[
+                    exchange
+                ][
+                    "available"
+                ]:
+
+                    status[
+                        exchange
+                    ][
+                        "symbols"
+                    ] += 1
+
+        return status
 
     # =====================================================
     # BACKGROUND LOOP
@@ -588,9 +1248,11 @@ class AutoScanner:
         # First scan immediately.
         await self.scan_once()
 
-        # Then every 60 seconds.
-        self._task = asyncio.create_task(
-            self._loop()
+        # Continue automatically.
+        self._task = (
+            asyncio.create_task(
+                self._loop()
+            )
         )
 
     # =====================================================
@@ -620,6 +1282,14 @@ class AutoScanner:
             except asyncio.CancelledError:
 
                 pass
+
+        try:
+
+            await self.exchange_client.close()
+
+        except Exception:
+
+            pass
 
     # =====================================================
     # SNAPSHOT
@@ -673,6 +1343,16 @@ class AutoScanner:
             "error_count":
                 self._error_count,
 
+            "exchanges":
+                list(
+                    EXCHANGES
+                ),
+
+            "timeframes":
+                list(
+                    TIMEFRAMES
+                ),
+
             "last_scan_at": (
                 self._last_scan_at.isoformat()
                 if self._last_scan_at
@@ -705,7 +1385,13 @@ auto_scanner = AutoScanner(
 )
 
 
+# =========================================================
+# EXPORTS
+# =========================================================
+
 __all__ = [
     "AutoScanner",
     "auto_scanner",
+    "EXCHANGES",
+    "TIMEFRAMES",
 ]
