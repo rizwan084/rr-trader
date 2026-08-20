@@ -723,6 +723,111 @@ td{
 }
 
 /* =====================================================
+   AI ASSISTANT V2
+===================================================== */
+
+.ai-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:12px;
+}
+
+.ai-status{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    color:#8d98aa;
+    font-size:11px;
+}
+
+.ai-status-dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:#22c55e;
+    box-shadow:0 0 12px rgba(34,197,94,.7);
+}
+
+.ai-examples{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-bottom:12px;
+}
+
+.ai-example{
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.035);
+    color:#aeb7c6;
+    border-radius:999px;
+    padding:7px 10px;
+    font-size:11px;
+    cursor:pointer;
+}
+
+.ai-example:hover{
+    color:#fff;
+    background:rgba(255,255,255,.07);
+}
+
+.ai-composer{
+    display:flex;
+    gap:8px;
+    align-items:flex-end;
+    margin-top:10px;
+}
+
+.ai-composer textarea{
+    flex:1;
+    min-height:48px;
+    max-height:160px;
+    resize:vertical;
+}
+
+.ai-send{
+    min-width:82px;
+}
+
+.ai-typing{
+    color:#7f8a9c;
+    font-size:11px;
+    padding:5px 2px 10px;
+}
+
+.ai-image{
+    display:block;
+    width:min(100%,720px);
+    margin-top:10px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.09);
+    background:#05070b;
+}
+
+.ai-image-link{
+    display:inline-block;
+    margin-top:8px;
+    color:#4ade80;
+    font-size:11px;
+}
+
+.ai-error{
+    border-left:3px solid #f87171;
+}
+
+@media(max-width:720px){
+    .ai-composer{
+        flex-direction:column;
+        align-items:stretch;
+    }
+
+    .ai-send{
+        width:100%;
+    }
+}
+
+/* =====================================================
    POST
 ===================================================== */
 
@@ -1621,44 +1726,90 @@ td{
 <section class="page" id="page-ai">
 
     <div class="page-head">
-
         <div>
             <h2>AI Assistant</h2>
             <p>
-                Ask RR Trader about markets, setups and analysis.
+                Ask RR Trader anything — market analysis, coding, research,
+                writing, current information, or image generation.
             </p>
         </div>
-
     </div>
 
     <div class="card chat">
+
+        <div class="ai-toolbar">
+            <div class="ai-status">
+                <span class="ai-status-dot"></span>
+                <span id="ai-status">Checking AI...</span>
+            </div>
+
+            <button
+                class="btn"
+                id="ai-clear"
+                type="button"
+            >
+                Clear Chat
+            </button>
+        </div>
+
+        <div class="ai-examples">
+            <button class="ai-example" type="button"
+                data-prompt="Analyze BTCUSDT using the current RR Trader data and explain the setup.">
+                Analyze BTC
+            </button>
+
+            <button class="ai-example" type="button"
+                data-prompt="Which coin currently has the strongest setup in RR Trader?">
+                Strongest Setup
+            </button>
+
+            <button class="ai-example" type="button"
+                data-prompt="What is the latest important crypto market news today?">
+                Latest Crypto News
+            </button>
+
+            <button class="ai-example" type="button"
+                data-prompt="Explain market structure in simple words.">
+                Explain Structure
+            </button>
+
+            <button class="ai-example" type="button"
+                data-prompt="Generate a professional futuristic crypto trading terminal image for RR Trader.">
+                Generate Image
+            </button>
+        </div>
 
         <div
             class="chat-messages"
             id="chat-messages"
         >
-
             <div class="message ai">
-                RR Trader AI is ready. Ask me about a coin,
-                market structure, signal or trading setup.
+                RR Trader AI is ready. Ask me anything.
             </div>
-
         </div>
 
-        <div class="chat-input">
+        <div
+            class="ai-typing"
+            id="ai-typing"
+            style="display:none;"
+        >
+            RR Trader AI is thinking...
+        </div>
 
-            <input
+        <div class="ai-composer">
+            <textarea
                 id="chat-input"
-                placeholder="Ask RR Trader AI..."
-            >
+                rows="1"
+                placeholder="Ask RR Trader AI anything..."
+            ></textarea>
 
             <button
-                class="btn btn-green"
+                class="btn btn-green ai-send"
                 id="chat-send"
+                type="button"
             >
                 Send
             </button>
-
         </div>
 
     </div>
@@ -2937,16 +3088,189 @@ $("refresh-overview")
     );
 
 /* =====================================================
-   AI CHAT
+   AI CHAT V2
 ===================================================== */
 
-async function sendChat(){
+const AI_CONVERSATION_KEY =
+    "rrTraderAIConversationId";
+
+function getAIConversationId(){
+
+    let id =
+        localStorage.getItem(
+            AI_CONVERSATION_KEY
+        );
+
+    if(!id){
+        id =
+            `rr-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2,10)}`;
+
+        localStorage.setItem(
+            AI_CONVERSATION_KEY,
+            id
+        );
+    }
+
+    return id;
+}
+
+function addChatMessage(
+    text,
+    type,
+    image = null
+){
+
+    const container =
+        $("chat-messages");
+
+    const message =
+        document.createElement("div");
+
+    message.className =
+        `message ${type}`;
+
+    if(
+        type === "ai" &&
+        image
+    ){
+
+        if(image.data_url){
+
+            const img =
+                document.createElement("img");
+
+            img.className =
+                "ai-image";
+
+            img.src =
+                image.data_url;
+
+            img.alt =
+                "AI generated image";
+
+            message.appendChild(
+                img
+            );
+
+            const link =
+                document.createElement("a");
+
+            link.className =
+                "ai-image-link";
+
+            link.href =
+                image.data_url;
+
+            link.target =
+                "_blank";
+
+            link.rel =
+                "noopener";
+
+            link.textContent =
+                "Open image";
+
+            message.appendChild(
+                link
+            );
+
+        }else if(image.url){
+
+            const img =
+                document.createElement("img");
+
+            img.className =
+                "ai-image";
+
+            img.src =
+                image.url;
+
+            img.alt =
+                "AI generated image";
+
+            message.appendChild(
+                img
+            );
+        }
+
+        if(text){
+            const caption =
+                document.createElement("div");
+
+            caption.style.marginTop =
+                "8px";
+
+            caption.textContent =
+                text;
+
+            message.appendChild(
+                caption
+            );
+        }
+
+    }else{
+
+        message.textContent =
+            text;
+    }
+
+    container.appendChild(
+        message
+    );
+
+    container.scrollTop =
+        container.scrollHeight;
+}
+
+async function loadAIStatus(){
+
+    const status =
+        $("ai-status");
+
+    try{
+
+        const data =
+            await api(
+                "/api/ai/status"
+            );
+
+        status.textContent =
+            data.enabled
+                ? `AI Online · ${data.model || "OpenAI"}`
+                : "AI not configured";
+
+    }catch{
+
+        status.textContent =
+            "AI status unavailable";
+    }
+}
+
+function setAITyping(
+    visible
+){
+
+    $("ai-typing")
+        .style.display =
+            visible
+                ? "block"
+                : "none";
+}
+
+async function sendChat(
+    forcedMessage = null
+){
 
     const input =
         $("chat-input");
 
     const message =
-        input.value.trim();
+        (
+            forcedMessage ??
+            input.value
+        ).trim();
 
     if(!message){
         return;
@@ -2959,7 +3283,22 @@ async function sendChat(){
 
     input.value = "";
 
+    setAITyping(true);
+
     try{
+
+        /*
+         * Always send the most relevant live RR Trader
+         * context currently available on the dashboard.
+         */
+        const context = {
+            analysis:
+                state.analysis || null,
+            scanner:
+                state.scanner || null,
+            page:
+                state.page || "ai"
+        };
 
         const data =
             await api(
@@ -2967,79 +3306,151 @@ async function sendChat(){
                 {
                     method:"POST",
                     body:JSON.stringify({
+
                         message,
-                        context:
-                            state.analysis ||
-                            state.scanner ||
-                            {}
+
+                        context,
+
+                        conversation_id:
+                            getAIConversationId(),
+
+                        use_web:
+                            null,
+
+                        allow_image:
+                            true,
+
+                        image_size:
+                            "1024x1024"
                     })
                 }
             );
 
-        const answer =
-            data.response ||
-            data.message ||
-            data.answer ||
-            data.error ||
-            "No AI response.";
+        if(
+            data.type === "image" &&
+            data.image
+        ){
 
-        addChatMessage(
-            answer,
-            "ai"
-        );
+            addChatMessage(
+                data.response ||
+                    "Image generated successfully.",
+                "ai",
+                data.image
+            );
+
+        }else if(
+            data.success === false
+        ){
+
+            const messageText =
+                data.response ||
+                data.message ||
+                "I couldn't complete that request.";
+
+            addChatMessage(
+                messageText,
+                "ai ai-error"
+            );
+
+        }else{
+
+            addChatMessage(
+                data.response ||
+                    data.message ||
+                    data.answer ||
+                    "No AI response.",
+                "ai"
+            );
+        }
 
     }catch(error){
 
         addChatMessage(
-            error.message,
-            "ai"
+            "I couldn't complete that request right now. Please try again.",
+            "ai ai-error"
         );
 
+        console.error(
+            "RR Trader AI error:",
+            error
+        );
+
+    }finally{
+
+        setAITyping(false);
     }
-}
-
-function addChatMessage(
-    text,
-    type
-){
-
-    const container =
-        $("chat-messages");
-
-    const message =
-        document.createElement("div");
-
-    message.className =
-        `message ${type}`;
-
-    message.textContent =
-        text;
-
-    container.appendChild(
-        message
-    );
-
-    container.scrollTop =
-        container.scrollHeight;
 }
 
 $("chat-send")
     .addEventListener(
         "click",
-        sendChat
+        ()=>{
+            sendChat();
+        }
     );
 
 $("chat-input")
     .addEventListener(
         "keydown",
         event=>{
+
             if(
-                event.key === "Enter"
+                event.key === "Enter" &&
+                !event.shiftKey
             ){
+
+                event.preventDefault();
+
                 sendChat();
             }
         }
     );
+
+document
+    .querySelectorAll(
+        ".ai-example"
+    )
+    .forEach(button=>{
+
+        button.addEventListener(
+            "click",
+            ()=>{
+
+                sendChat(
+                    button.dataset.prompt
+                );
+            }
+        );
+    });
+
+$("ai-clear")
+    .addEventListener(
+        "click",
+        ()=>{
+
+            const container =
+                $("chat-messages");
+
+            container.innerHTML = `
+                <div class="message ai">
+                    RR Trader AI is ready. Ask me anything.
+                </div>
+            `;
+
+            /*
+             * A new browser conversation ID creates a clean
+             * server-side conversation without deleting old memory.
+             */
+            localStorage.setItem(
+                AI_CONVERSATION_KEY,
+                `rr-${Date.now()}-${Math.random()
+                    .toString(36)
+                    .slice(2,10)}`
+            );
+        }
+    );
+
+loadAIStatus();
 
 /* =====================================================
    BINANCE POST
