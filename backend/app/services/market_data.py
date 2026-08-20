@@ -8,25 +8,182 @@ from app.clients.binance import binance_client
 
 class MarketDataService:
     """
-    Centralized RR Trader market-data service.
+    RR Trader centralized market-data service.
 
-    Handles:
-    - Spot
-    - Futures
-    - 15m / 1h / 4h candles
-    - Order book
-    - Price / ticker
-    - Futures derivatives data
+    Responsibilities:
+    - Collect raw market data.
+    - Support Binance Spot and Futures.
+    - Collect multiple analysis timeframes.
+    - Provide enough historical candles for:
+        * repeated support tests
+        * repeated resistance tests
+        * rejection detection
+        * structure analysis
+        * breakout detection
+        * momentum analysis
+        * volume analysis
+        * MTF confirmation
+    - Collect order-book liquidity data.
+    - Collect Futures derivatives data.
 
-    This service collects raw market data.
-    It does NOT decide LONG or SHORT.
+    IMPORTANT:
+    This service does NOT decide LONG or SHORT.
+
+    Signal decisions belong to:
+        market_structure
+        indicators
+        mtf_engine
+        liquidity_engine
+        liquidation_engine
+        confidence_engine
+        analysis_engine
+        signal_engine
+        trade_engine
     """
 
+    # =====================================================
+    # TIMEFRAMES
+    # =====================================================
+
+    # Main confirmation timeframes.
     CORE_TIMEFRAMES = (
         "15m",
         "1h",
         "4h",
     )
+
+    # Extra timeframes used for setup discovery.
+    DISCOVERY_TIMEFRAMES = (
+        "5m",
+        "15m",
+        "30m",
+        "45m",
+        "1h",
+        "4h",
+    )
+
+    # Number of candles requested for each timeframe.
+    #
+    # Larger history is intentional because the new setup
+    # engine must be able to determine whether price has
+    # tested the same support/resistance multiple times.
+    DEFAULT_CANDLE_LIMIT = 250
+
+    MIN_CANDLE_LIMIT = 100
+    MAX_CANDLE_LIMIT = 1000
+
+    DEFAULT_ORDER_BOOK_LIMIT = 100
+
+    # Derivatives history.
+    DEFAULT_DERIVATIVES_LIMIT = 30
+
+    # =====================================================
+    # NORMALIZATION HELPERS
+    # =====================================================
+
+    @staticmethod
+    def _normalize_symbol(
+        symbol: str,
+    ) -> str:
+
+        return (
+            str(symbol or "")
+            .upper()
+            .replace("/", "")
+            .replace("-PERP", "")
+            .replace("_PERP", "")
+            .strip()
+        )
+
+    @staticmethod
+    def _normalize_market(
+        market: str,
+    ) -> str:
+
+        value = (
+            str(market or "futures")
+            .lower()
+            .strip()
+        )
+
+        aliases = {
+            "future": "futures",
+            "futures": "futures",
+            "future_usdt": "futures",
+            "spot": "spot",
+        }
+
+        return aliases.get(
+            value,
+            value,
+        )
+
+    @classmethod
+    def _safe_limit(
+        cls,
+        limit: int,
+    ) -> int:
+
+        try:
+            value = int(limit)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = cls.DEFAULT_CANDLE_LIMIT
+
+        return max(
+            cls.MIN_CANDLE_LIMIT,
+            min(
+                cls.MAX_CANDLE_LIMIT,
+                value,
+            ),
+        )
+
+    # =====================================================
+    # GENERIC SAFE CLIENT CALL
+    # =====================================================
+
+    async def _call_client(
+        self,
+        method_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+
+        method = getattr(
+            binance_client,
+            method_name,
+            None,
+        )
+
+        if not callable(method):
+
+            return {
+                "success": False,
+                "available": False,
+                "error": (
+                    f"BinanceClient method "
+                    f"'{method_name}' is not available."
+                ),
+            }
+
+        try:
+
+            result = await method(
+                *args,
+                **kwargs,
+            )
+
+            return result
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "available": False,
+                "error": str(exc),
+            }
 
     # =====================================================
     # BASIC MARKET DATA
@@ -37,10 +194,13 @@ class MarketDataService:
         market: str = "futures",
     ) -> Any:
 
-        return await (
-            binance_client.ticker_24h(
-                market=market
-            )
+        market = self._normalize_market(
+            market
+        )
+
+        return await self._call_client(
+            "ticker_24h",
+            market=market,
         )
 
     async def exchange_info(
@@ -48,11 +208,27 @@ class MarketDataService:
         market: str = "futures",
     ) -> dict[str, Any]:
 
-        return await (
-            binance_client.exchange_info(
-                market=market
-            )
+        market = self._normalize_market(
+            market
         )
+
+        result = await self._call_client(
+            "exchange_info",
+            market=market,
+        )
+
+        if isinstance(
+            result,
+            dict,
+        ):
+            return result
+
+        return {
+            "success": False,
+            "available": False,
+            "symbols": [],
+            "error": "Invalid exchange info response.",
+        }
 
     async def price(
         self,
@@ -60,11 +236,18 @@ class MarketDataService:
         market: str = "futures",
     ) -> Any:
 
-        return await (
-            binance_client.price(
-                symbol=symbol,
-                market=market,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        market = self._normalize_market(
+            market
+        )
+
+        return await self._call_client(
+            "price",
+            symbol=symbol,
+            market=market,
         )
 
     # =====================================================
@@ -76,24 +259,51 @@ class MarketDataService:
         symbol: str,
         interval: str,
         market: str = "futures",
-        limit: int = 200,
+        limit: int = DEFAULT_CANDLE_LIMIT,
     ) -> Any:
 
-        return await (
-            binance_client.klines(
-                symbol=symbol,
-                interval=interval,
-                market=market,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
         )
+
+        market = self._normalize_market(
+            market
+        )
+
+        limit = self._safe_limit(
+            limit
+        )
+
+        return await self._call_client(
+            "klines",
+            symbol=symbol,
+            interval=interval,
+            market=market,
+            limit=limit,
+        )
+
+    # =====================================================
+    # MULTI-TIMEFRAME CANDLES
+    # =====================================================
 
     async def core_timeframes(
         self,
         symbol: str,
         market: str = "futures",
-        limit: int = 200,
+        limit: int = DEFAULT_CANDLE_LIMIT,
     ) -> dict[str, Any]:
+
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        market = self._normalize_market(
+            market
+        )
+
+        limit = self._safe_limit(
+            limit
+        )
 
         tasks = [
             self.klines(
@@ -125,25 +335,142 @@ class MarketDataService:
 
                 output[timeframe] = {
                     "success": False,
-                    "error": str(
-                        result
+                    "available": False,
+                    "error": str(result),
+                    "candles": [],
+                    "count": 0,
+                }
+
+                continue
+
+            if not isinstance(
+                result,
+                list,
+            ):
+
+                output[timeframe] = {
+                    "success": False,
+                    "available": False,
+                    "error": (
+                        "Invalid candle response."
                     ),
                     "candles": [],
+                    "count": 0,
                 }
 
                 continue
 
             output[timeframe] = {
                 "success": True,
+                "available": True,
                 "candles": result,
-                "count": (
-                    len(result)
-                    if isinstance(
-                        result,
-                        list,
-                    )
-                    else 0
-                ),
+                "count": len(result),
+            }
+
+        return output
+
+    # =====================================================
+    # FULL DISCOVERY TIMEFRAMES
+    # =====================================================
+
+    async def discovery_timeframes(
+        self,
+        symbol: str,
+        market: str = "futures",
+        limit: int = DEFAULT_CANDLE_LIMIT,
+    ) -> dict[str, Any]:
+
+        """
+        Fetch all timeframes needed for setup discovery.
+
+        These candles are deliberately collected before
+        signal generation.
+
+        The purpose is to allow later engines to detect:
+
+        - repeated support tests
+        - repeated resistance tests
+        - rejection
+        - local consolidation
+        - breakout
+        - retest
+        - momentum
+        - volume confirmation
+        - MTF alignment
+        """
+
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        market = self._normalize_market(
+            market
+        )
+
+        limit = self._safe_limit(
+            limit
+        )
+
+        tasks = [
+            self.klines(
+                symbol=symbol,
+                interval=timeframe,
+                market=market,
+                limit=limit,
+            )
+            for timeframe
+            in self.DISCOVERY_TIMEFRAMES
+        ]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        output: dict[str, Any] = {}
+
+        for timeframe, result in zip(
+            self.DISCOVERY_TIMEFRAMES,
+            results,
+        ):
+
+            if isinstance(
+                result,
+                Exception,
+            ):
+
+                output[timeframe] = {
+                    "success": False,
+                    "available": False,
+                    "error": str(result),
+                    "candles": [],
+                    "count": 0,
+                }
+
+                continue
+
+            if not isinstance(
+                result,
+                list,
+            ):
+
+                output[timeframe] = {
+                    "success": False,
+                    "available": False,
+                    "error": (
+                        "Invalid candle response."
+                    ),
+                    "candles": [],
+                    "count": 0,
+                }
+
+                continue
+
+            output[timeframe] = {
+                "success": True,
+                "available": True,
+                "candles": result,
+                "count": len(result),
             }
 
         return output
@@ -156,15 +483,40 @@ class MarketDataService:
         self,
         symbol: str,
         market: str = "futures",
-        limit: int = 100,
+        limit: int = DEFAULT_ORDER_BOOK_LIMIT,
     ) -> Any:
 
-        return await (
-            binance_client.order_book(
-                symbol=symbol,
-                market=market,
-                limit=limit,
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        market = self._normalize_market(
+            market
+        )
+
+        try:
+            safe_limit = int(limit)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            safe_limit = (
+                self.DEFAULT_ORDER_BOOK_LIMIT
             )
+
+        safe_limit = max(
+            5,
+            min(
+                1000,
+                safe_limit,
+            ),
+        )
+
+        return await self._call_client(
+            "order_book",
+            symbol=symbol,
+            market=market,
+            limit=safe_limit,
         )
 
     # =====================================================
@@ -176,10 +528,13 @@ class MarketDataService:
         symbol: str,
     ) -> Any:
 
-        return await (
-            binance_client.mark_price(
-                symbol
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "mark_price",
+            symbol,
         )
 
     async def open_interest(
@@ -187,102 +542,369 @@ class MarketDataService:
         symbol: str,
     ) -> Any:
 
-        return await (
-            binance_client.open_interest(
-                symbol
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "open_interest",
+            symbol,
         )
 
     async def open_interest_history(
         self,
         symbol: str,
         period: str = "5m",
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
+        limit: int = DEFAULT_DERIVATIVES_LIMIT,
+    ) -> Any:
 
-        return await (
-            binance_client
-            .open_interest_history(
-                symbol=symbol,
-                period=period,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "open_interest_history",
+            symbol=symbol,
+            period=period,
+            limit=max(
+                1,
+                min(
+                    500,
+                    int(limit),
+                ),
+            ),
         )
 
     async def funding_rate(
         self,
         symbol: str,
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
+        limit: int = DEFAULT_DERIVATIVES_LIMIT,
+    ) -> Any:
 
-        return await (
-            binance_client.funding_rate(
-                symbol=symbol,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "funding_rate",
+            symbol=symbol,
+            limit=max(
+                1,
+                min(
+                    100,
+                    int(limit),
+                ),
+            ),
         )
 
     async def global_long_short_ratio(
         self,
         symbol: str,
         period: str = "5m",
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
+        limit: int = DEFAULT_DERIVATIVES_LIMIT,
+    ) -> Any:
 
-        return await (
-            binance_client
-            .global_long_short_ratio(
-                symbol=symbol,
-                period=period,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "global_long_short_ratio",
+            symbol=symbol,
+            period=period,
+            limit=max(
+                1,
+                min(
+                    500,
+                    int(limit),
+                ),
+            ),
         )
 
     async def top_trader_long_short_ratio(
         self,
         symbol: str,
         period: str = "5m",
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
+        limit: int = DEFAULT_DERIVATIVES_LIMIT,
+    ) -> Any:
 
-        return await (
-            binance_client
-            .top_trader_long_short_ratio(
-                symbol=symbol,
-                period=period,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "top_trader_long_short_ratio",
+            symbol=symbol,
+            period=period,
+            limit=max(
+                1,
+                min(
+                    500,
+                    int(limit),
+                ),
+            ),
         )
 
     async def top_trader_position_ratio(
         self,
         symbol: str,
         period: str = "5m",
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
+        limit: int = DEFAULT_DERIVATIVES_LIMIT,
+    ) -> Any:
 
-        return await (
-            binance_client
-            .top_trader_position_ratio(
-                symbol=symbol,
-                period=period,
-                limit=limit,
-            )
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        return await self._call_client(
+            "top_trader_position_ratio",
+            symbol=symbol,
+            period=period,
+            limit=max(
+                1,
+                min(
+                    500,
+                    int(limit),
+                ),
+            ),
         )
 
     async def liquidation_orders(
         self,
         symbol: str | None = None,
         limit: int = 100,
-    ) -> list[dict[str, Any]]:
+    ) -> Any:
 
-        return await (
-            binance_client
-            .liquidation_orders(
-                symbol=symbol,
-                limit=limit,
-            )
+        normalized_symbol = (
+            self._normalize_symbol(symbol)
+            if symbol
+            else None
         )
+
+        return await self._call_client(
+            "liquidation_orders",
+            symbol=normalized_symbol,
+            limit=max(
+                1,
+                min(
+                    1000,
+                    int(limit),
+                ),
+            ),
+        )
+
+    # =====================================================
+    # FUTURES DERIVATIVES SNAPSHOT
+    # =====================================================
+
+    async def derivatives_snapshot(
+        self,
+        symbol: str,
+    ) -> dict[str, Any]:
+
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        tasks = [
+            self.mark_price(symbol),
+            self.open_interest(symbol),
+            self.open_interest_history(
+                symbol
+            ),
+            self.funding_rate(symbol),
+            self.global_long_short_ratio(
+                symbol
+            ),
+            self.top_trader_long_short_ratio(
+                symbol
+            ),
+            self.top_trader_position_ratio(
+                symbol
+            ),
+            self.liquidation_orders(
+                symbol=symbol,
+                limit=100,
+            ),
+        ]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        keys = (
+            "mark_price",
+            "open_interest",
+            "open_interest_history",
+            "funding_rate",
+            "global_long_short_ratio",
+            "top_trader_long_short_ratio",
+            "top_trader_position_ratio",
+            "liquidation_orders",
+        )
+
+        output: dict[str, Any] = {}
+
+        for key, result in zip(
+            keys,
+            results,
+        ):
+
+            if isinstance(
+                result,
+                Exception,
+            ):
+
+                output[key] = {
+                    "success": False,
+                    "available": False,
+                    "error": str(result),
+                }
+
+            else:
+
+                output[key] = result
+
+        return output
+
+    # =====================================================
+    # SETUP DISCOVERY SNAPSHOT
+    # =====================================================
+
+    async def setup_discovery_snapshot(
+        self,
+        symbol: str,
+        market: str = "futures",
+        candle_limit: int = DEFAULT_CANDLE_LIMIT,
+        order_book_limit: int = DEFAULT_ORDER_BOOK_LIMIT,
+    ) -> dict[str, Any]:
+
+        """
+        Raw-data snapshot specifically designed for the
+        new setup-discovery pipeline.
+
+        IMPORTANT:
+
+        This does NOT say:
+            LONG
+            SHORT
+            BUY
+            SELL
+
+        It only collects the evidence required by the
+        analysis engines.
+
+        The next engines will determine whether the coin
+        is actually sitting near a repeated support/
+        resistance area and whether rejection/momentum/
+        structure confirm the setup.
+        """
+
+        symbol = self._normalize_symbol(
+            symbol
+        )
+
+        market = self._normalize_market(
+            market
+        )
+
+        if market not in {
+            "spot",
+            "futures",
+        }:
+
+            raise ValueError(
+                "market must be "
+                "'spot' or 'futures'"
+            )
+
+        tasks = [
+            self.discovery_timeframes(
+                symbol=symbol,
+                market=market,
+                limit=candle_limit,
+            ),
+            self.price(
+                symbol=symbol,
+                market=market,
+            ),
+            self.ticker_24h(
+                market=market,
+            ),
+            self.order_book(
+                symbol=symbol,
+                market=market,
+                limit=order_book_limit,
+            ),
+        ]
+
+        if market == "futures":
+
+            tasks.append(
+                self.derivatives_snapshot(
+                    symbol
+                )
+            )
+
+        else:
+
+            tasks.append(
+                asyncio.sleep(
+                    0,
+                    result={
+                        "available": False,
+                        "reason": (
+                            "Derivatives are "
+                            "not available "
+                            "for Spot."
+                        ),
+                    },
+                )
+            )
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        timeframes = results[0]
+        price_data = results[1]
+        ticker_data = results[2]
+        order_book_data = results[3]
+        derivatives_data = results[4]
+
+        return {
+            "success": True,
+            "symbol": symbol,
+            "market": market,
+
+            # Raw candle evidence.
+            "timeframes": timeframes,
+
+            # Current market information.
+            "price": price_data,
+            "ticker_24h": ticker_data,
+
+            # Liquidity evidence.
+            "order_book": order_book_data,
+
+            # Futures evidence.
+            "derivatives": derivatives_data,
+
+            # Explicit metadata for downstream engines.
+            "setup_discovery": {
+                "enabled": True,
+                "purpose": (
+                    "Find support/resistance "
+                    "retests, rejection, "
+                    "consolidation, breakout "
+                    "and confirmation setups."
+                ),
+                "signal_decision": False,
+                "top_gainer_loser_signal": False,
+            },
+        }
 
     # =====================================================
     # COMPLETE SYMBOL SNAPSHOT
@@ -292,188 +914,92 @@ class MarketDataService:
         self,
         symbol: str,
         market: str = "futures",
-        candle_limit: int = 200,
+        candle_limit: int = DEFAULT_CANDLE_LIMIT,
     ) -> dict[str, Any]:
 
-        symbol = str(
+        """
+        Backward-compatible complete symbol snapshot.
+
+        The snapshot now uses the broader discovery
+        timeframe set instead of only the three core
+        timeframes.
+        """
+
+        return await self.setup_discovery_snapshot(
+            symbol=symbol,
+            market=market,
+            candle_limit=candle_limit,
+            order_book_limit=self.DEFAULT_ORDER_BOOK_LIMIT,
+        )
+
+    # =====================================================
+    # QUICK CORE SNAPSHOT
+    # =====================================================
+
+    async def core_snapshot(
+        self,
+        symbol: str,
+        market: str = "futures",
+        candle_limit: int = DEFAULT_CANDLE_LIMIT,
+    ) -> dict[str, Any]:
+
+        """
+        Lightweight snapshot for engines that only need
+        15m / 1h / 4h.
+        """
+
+        symbol = self._normalize_symbol(
             symbol
-        ).upper().strip()
+        )
 
-        market = str(
+        market = self._normalize_market(
             market
-        ).lower().strip()
+        )
 
-        if market not in {
-            "spot",
-            "futures",
-        }:
-
-            raise ValueError(
-                "market must be 'spot' or 'futures'"
-            )
-
-        # -------------------------------------------------
-        # Core market data
-        # -------------------------------------------------
-
-        core_task = (
+        tasks = [
             self.core_timeframes(
                 symbol=symbol,
                 market=market,
                 limit=candle_limit,
-            )
-        )
-
-        price_task = (
+            ),
             self.price(
                 symbol=symbol,
                 market=market,
-            )
-        )
-
-        ticker_task = (
-            binance_client.ticker_24h(
-                market=market,
-                symbol=symbol,
-            )
-        )
-
-        orderbook_task = (
+            ),
             self.order_book(
                 symbol=symbol,
                 market=market,
-                limit=100,
-            )
-        )
-
-        base_tasks = [
-            core_task,
-            price_task,
-            ticker_task,
-            orderbook_task,
+                limit=self.DEFAULT_ORDER_BOOK_LIMIT,
+            ),
         ]
-
-        # -------------------------------------------------
-        # Futures-only data
-        # -------------------------------------------------
-
-        futures_tasks = []
-
-        if market == "futures":
-
-            futures_tasks = [
-                self.mark_price(
-                    symbol
-                ),
-
-                self.open_interest(
-                    symbol
-                ),
-
-                self.open_interest_history(
-                    symbol
-                ),
-
-                self.funding_rate(
-                    symbol
-                ),
-
-                self.global_long_short_ratio(
-                    symbol
-                ),
-
-                self.top_trader_long_short_ratio(
-                    symbol
-                ),
-
-                self.top_trader_position_ratio(
-                    symbol
-                ),
-
-                self.liquidation_orders(
-                    symbol=symbol,
-                    limit=100,
-                ),
-            ]
-
-        else:
-
-            futures_tasks = [
-                asyncio.sleep(
-                    0,
-                    result=None,
-                )
-                for _ in range(8)
-            ]
 
         results = await asyncio.gather(
-            *base_tasks,
-            *futures_tasks,
+            *tasks,
             return_exceptions=True,
         )
-
-        core_data = results[0]
-        price_data = results[1]
-        ticker_data = results[2]
-        order_book_data = results[3]
-
-        futures_results = results[
-            4:
-        ]
-
-        futures_data = {
-            "mark_price": None,
-            "open_interest": None,
-            "open_interest_history": [],
-            "funding_rate": [],
-            "global_long_short_ratio": [],
-            "top_trader_long_short_ratio": [],
-            "top_trader_position_ratio": [],
-            "liquidation_orders": [],
-        }
-
-        if market == "futures":
-
-            keys = list(
-                futures_data.keys()
-            )
-
-            for key, result in zip(
-                keys,
-                futures_results,
-            ):
-
-                if isinstance(
-                    result,
-                    Exception,
-                ):
-
-                    futures_data[key] = {
-                        "error": str(
-                            result
-                        )
-                    }
-
-                else:
-
-                    futures_data[key] = (
-                        result
-                    )
 
         return {
             "success": True,
             "symbol": symbol,
             "market": market,
-            "timeframes": core_data,
-            "price": price_data,
-            "ticker_24h": ticker_data,
-            "order_book": order_book_data,
-            "derivatives": futures_data,
+            "timeframes": results[0],
+            "price": results[1],
+            "order_book": results[2],
         }
 
 
-market_data_service = MarketDataService()
+# =========================================================
+# SHARED INSTANCE
+# =========================================================
 
+market_data_service = (
+    MarketDataService()
+)
+
+
+# =========================================================
+# EXPORTS
+# =========================================================
 
 __all__ = [
     "MarketDataService",
