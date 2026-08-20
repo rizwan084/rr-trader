@@ -27,8 +27,34 @@ body{
 }
 
 /* =====================================================
-   ANIMATED CRYPTO BACKGROUND
+   PREMIUM LIVE MARKET BACKGROUND
+   Page-aware candle scenes + cinematic overlays
 ===================================================== */
+
+:root{
+    --bg-base:#03050a;
+    --bg-accent:#22c55e;
+    --bg-accent-soft:rgba(34,197,94,.12);
+    --bg-glow:rgba(34,197,94,.10);
+    --bg-candle-up:#35e58a;
+    --bg-candle-down:#ff5b70;
+}
+
+body{
+    background:
+        radial-gradient(
+            circle at 72% 18%,
+            var(--bg-glow),
+            transparent 34%
+        ),
+        radial-gradient(
+            circle at 20% 78%,
+            rgba(255,255,255,.025),
+            transparent 38%
+        ),
+        var(--bg-base);
+    transition:background .45s ease;
+}
 
 #market-background{
     position:fixed;
@@ -37,7 +63,9 @@ body{
     height:100%;
     z-index:0;
     pointer-events:none;
-    opacity:.42;
+    opacity:.72;
+    filter:saturate(1.05);
+    transition:opacity .4s ease, filter .4s ease;
 }
 
 .background-overlay{
@@ -47,14 +75,42 @@ body{
     pointer-events:none;
     background:
         radial-gradient(
-            circle at 50% 0%,
-            rgba(34,197,94,.06),
-            transparent 35%
+            ellipse at 50% -10%,
+            var(--bg-accent-soft),
+            transparent 42%
         ),
         linear-gradient(
             180deg,
-            rgba(5,7,11,.25),
-            rgba(5,7,11,.86)
+            rgba(3,5,10,.08) 0%,
+            rgba(3,5,10,.32) 42%,
+            rgba(3,5,10,.84) 100%
+        );
+}
+
+.background-overlay::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:
+        linear-gradient(
+            90deg,
+            rgba(3,5,10,.62) 0%,
+            transparent 22%,
+            transparent 78%,
+            rgba(3,5,10,.42) 100%
+        );
+}
+
+.background-overlay::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:
+        radial-gradient(
+            ellipse at center,
+            transparent 32%,
+            rgba(3,5,10,.28) 70%,
+            rgba(3,5,10,.66) 100%
         );
 }
 
@@ -63,11 +119,95 @@ body{
     inset:0;
     z-index:2;
     pointer-events:none;
-    opacity:.11;
+    opacity:.075;
     background-image:
-        linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),
-        linear-gradient(90deg,rgba(255,255,255,.07) 1px,transparent 1px);
-    background-size:60px 60px;
+        linear-gradient(rgba(255,255,255,.09) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(255,255,255,.09) 1px,transparent 1px);
+    background-size:72px 72px;
+    mask-image:linear-gradient(to bottom,black 0%,rgba(0,0,0,.65) 55%,transparent 100%);
+    -webkit-mask-image:linear-gradient(to bottom,black 0%,rgba(0,0,0,.65) 55%,transparent 100%);
+}
+
+/* Individual page scenes */
+body[data-page="overview"]{
+    --bg-base:#03070a;
+    --bg-accent:#22c55e;
+    --bg-accent-soft:rgba(34,197,94,.13);
+    --bg-glow:rgba(34,197,94,.11);
+    --bg-candle-up:#35e58a;
+    --bg-candle-down:#ff596f;
+}
+
+body[data-page="scanner"]{
+    --bg-base:#03080a;
+    --bg-accent:#14b8a6;
+    --bg-accent-soft:rgba(20,184,166,.13);
+    --bg-glow:rgba(20,184,166,.10);
+    --bg-candle-up:#2dd4bf;
+    --bg-candle-down:#fb7185;
+}
+
+body[data-page="opportunities"]{
+    --bg-base:#04070d;
+    --bg-accent:#38bdf8;
+    --bg-accent-soft:rgba(56,189,248,.12);
+    --bg-glow:rgba(56,189,248,.10);
+    --bg-candle-up:#38bdf8;
+    --bg-candle-down:#fb7185;
+}
+
+body[data-page="signals"]{
+    --bg-base:#080508;
+    --bg-accent:#a855f7;
+    --bg-accent-soft:rgba(168,85,247,.11);
+    --bg-glow:rgba(168,85,247,.09);
+    --bg-candle-up:#c084fc;
+    --bg-candle-down:#fb7185;
+}
+
+body[data-page="analysis"]{
+    --bg-base:#05060c;
+    --bg-accent:#6366f1;
+    --bg-accent-soft:rgba(99,102,241,.12);
+    --bg-glow:rgba(99,102,241,.10);
+    --bg-candle-up:#818cf8;
+    --bg-candle-down:#fb7185;
+}
+
+body[data-page="paper"]{
+    --bg-base:#080804;
+    --bg-accent:#eab308;
+    --bg-accent-soft:rgba(234,179,8,.11);
+    --bg-glow:rgba(234,179,8,.08);
+    --bg-candle-up:#facc15;
+    --bg-candle-down:#f97316;
+}
+
+body[data-page="ai"]{
+    --bg-base:#05040a;
+    --bg-accent:#8b5cf6;
+    --bg-accent-soft:rgba(139,92,246,.12);
+    --bg-glow:rgba(139,92,246,.10);
+    --bg-candle-up:#a78bfa;
+    --bg-candle-down:#f472b6;
+}
+
+body[data-page="post"]{
+    --bg-base:#070605;
+    --bg-accent:#f59e0b;
+    --bg-accent-soft:rgba(245,158,11,.11);
+    --bg-glow:rgba(245,158,11,.08);
+    --bg-candle-up:#fbbf24;
+    --bg-candle-down:#fb7185;
+}
+
+body[data-page="settings"]{
+    --bg-base:#05070a;
+    --bg-accent:#94a3b8;
+    --bg-accent-soft:rgba(148,163,184,.09);
+    --bg-glow:rgba(148,163,184,.07);
+    --bg-candle-up:#cbd5e1;
+    --bg-candle-down:#f87171;
 }
 
 /* =====================================================
@@ -1821,6 +1961,8 @@ const state = {
     chartInterval: "15"
 };
 
+document.body.dataset.page = "overview";
+
 /* =====================================================
    HELPERS
 ===================================================== */
@@ -1896,6 +2038,9 @@ function showPage(page){
 
     state.page = page;
 
+    /* Page-specific visual scene */
+    document.body.dataset.page = page;
+
     document
         .querySelectorAll(".page")
         .forEach(element=>{
@@ -1913,6 +2058,16 @@ function showPage(page){
                 button.dataset.page === page
             );
         });
+
+    /*
+     * Rebuild the candle composition after the CSS
+     * theme changes so every tab gets a fresh scene.
+     */
+    requestAnimationFrame(()=>{
+        if(typeof window.refreshMarketBackground === "function"){
+            window.refreshMarketBackground();
+        }
+    });
 
     window.scrollTo({
         top:0,
@@ -3051,50 +3206,57 @@ $("analysis-post-btn")
     );
 
 /* =====================================================
-   BACKGROUND CANDLE ENGINE
+   PREMIUM PAGE-AWARE CANDLE ENGINE
 ===================================================== */
 
 (function(){
 
-    const canvas =
-        $("market-background");
-
-    const ctx =
-        canvas.getContext("2d");
+    const canvas = $("market-background");
+    const ctx = canvas.getContext("2d", {alpha:true});
 
     let width = 0;
     let height = 0;
-
     let candles = [];
+    let sceneSeed = Math.random() * 1000;
+    let lastFrame = 0;
 
-    const candleWidth = 7;
-    const gap = 12;
+    const CONFIG = {
+        candleWidth: 18,
+        gap: 18,
+        speed: 0.22,
+        bodyMin: 5,
+        wickMin: 16,
+        wickMax: 46,
+        movementMin: 22,
+        movementMax: 58,
+        maxCandles: 150
+    };
+
+    function cssVar(name, fallback){
+        return getComputedStyle(document.body)
+            .getPropertyValue(name)
+            .trim() || fallback;
+    }
+
+    function randomBetween(min,max){
+        return Math.random() * (max - min) + min;
+    }
 
     function resize(){
 
-        const dpr =
-            Math.min(
-                window.devicePixelRatio || 1,
-                2
-            );
+        const dpr = Math.min(
+            window.devicePixelRatio || 1,
+            2
+        );
 
-        width =
-            window.innerWidth;
+        width = window.innerWidth;
+        height = window.innerHeight;
 
-        height =
-            window.innerHeight;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
 
-        canvas.width =
-            width * dpr;
-
-        canvas.height =
-            height * dpr;
-
-        canvas.style.width =
-            `${width}px`;
-
-        canvas.style.height =
-            `${height}px`;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
 
         ctx.setTransform(
             dpr,
@@ -3108,138 +3270,143 @@ $("analysis-post-btn")
         createCandles();
     }
 
-    function randomBetween(
-        min,
-        max
-    ){
-        return (
-            Math.random() *
-            (max - min) +
-            min
-        );
-    }
-
     function createCandles(){
 
         candles = [];
 
-        const count =
-            Math.ceil(
-                width /
-                (candleWidth + gap)
-            ) + 10;
+        const spacing =
+            CONFIG.candleWidth + CONFIG.gap;
 
-        let price =
-            height * .52;
+        const count = Math.min(
+            CONFIG.maxCandles,
+            Math.ceil(width / spacing) + 12
+        );
 
-        for(
-            let i=0;
-            i<count;
-            i++
-        ){
+        let price = height * randomBetween(.34,.62);
+        let trend = Math.random() > .5 ? 1 : -1;
 
-            const movement =
+        for(let i=0;i<count;i++){
+
+            /* Smooth market-like movement rather than random noise. */
+            if(Math.random() < .08){
+                trend *= -1;
+            }
+
+            const volatility =
                 randomBetween(
-                    -24,
-                    24
+                    CONFIG.movementMin,
+                    CONFIG.movementMax
                 );
 
-            const open =
-                price;
+            const movement =
+                trend *
+                volatility *
+                randomBetween(.45,1);
 
-            const close =
-                price + movement;
+            const open = price;
+            const close = price + movement;
+
+            const wick =
+                randomBetween(
+                    CONFIG.wickMin,
+                    CONFIG.wickMax
+                );
 
             const high =
                 Math.min(open,close) -
-                randomBetween(8,28);
+                wick * randomBetween(.55,1);
 
             const low =
                 Math.max(open,close) +
-                randomBetween(8,28);
+                wick * randomBetween(.55,1);
 
             candles.push({
                 open,
                 close,
                 high,
                 low,
-                x:
-                    i *
-                    (candleWidth + gap)
+                x:i * spacing,
+                phase:Math.random() * Math.PI * 2
             });
 
-            price =
-                close;
+            price = close;
 
-            if(
-                price < height*.22
-            ){
-                price =
-                    height*.35;
+            if(price < height * .18){
+                price = height * .30;
+                trend = 1;
             }
 
-            if(
-                price > height*.78
-            ){
-                price =
-                    height*.65;
+            if(price > height * .82){
+                price = height * .68;
+                trend = -1;
             }
         }
+
+        sceneSeed = Math.random() * 10000;
+    }
+
+    function recycleCandle(candle){
+
+        const last =
+            candles[candles.length - 1];
+
+        const base =
+            last
+                ? last.close
+                : height * .5;
+
+        const direction =
+            Math.random() > .5 ? 1 : -1;
+
+        const movement =
+            direction *
+            randomBetween(
+                CONFIG.movementMin,
+                CONFIG.movementMax
+            );
+
+        candle.open = base;
+        candle.close = base + movement;
+
+        const wick =
+            randomBetween(
+                CONFIG.wickMin,
+                CONFIG.wickMax
+            );
+
+        candle.high =
+            Math.min(
+                candle.open,
+                candle.close
+            ) - wick;
+
+        candle.low =
+            Math.max(
+                candle.open,
+                candle.close
+            ) + wick;
+
+        candle.x =
+            width +
+            CONFIG.candleWidth +
+            CONFIG.gap;
+
+        candle.phase =
+            Math.random() * Math.PI * 2;
     }
 
     function update(){
 
-        for(
-            const candle of candles
-        ){
+        for(const candle of candles){
 
-            candle.x -= .32;
+            candle.x -= CONFIG.speed;
 
             if(
                 candle.x <
-                -candleWidth-gap
+                -CONFIG.candleWidth -
+                CONFIG.gap
             ){
-
-                const last =
-                    candles[
-                        candles.length-1
-                    ];
-
-                const base =
-                    last
-                        ? last.close
-                        : height*.5;
-
-                const movement =
-                    randomBetween(
-                        -25,
-                        25
-                    );
-
-                candle.open =
-                    base;
-
-                candle.close =
-                    base + movement;
-
-                candle.high =
-                    Math.min(
-                        candle.open,
-                        candle.close
-                    ) -
-                    randomBetween(8,25);
-
-                candle.low =
-                    Math.max(
-                        candle.open,
-                        candle.close
-                    ) +
-                    randomBetween(8,25);
-
-                candle.x =
-                    width +
-                    candleWidth +
-                    gap;
+                recycleCandle(candle);
             }
         }
     }
@@ -3253,18 +3420,18 @@ $("analysis-post-btn")
             height
         );
 
+        const upColor =
+            cssVar("--bg-candle-up","#35e58a");
+
+        const downColor =
+            cssVar("--bg-candle-down","#ff5b70");
+
         ctx.save();
 
-        ctx.globalAlpha =
-            .75;
-
-        for(
-            const candle of candles
-        ){
+        for(const candle of candles){
 
             const bullish =
-                candle.close <
-                candle.open;
+                candle.close >= candle.open;
 
             const bodyTop =
                 Math.min(
@@ -3280,67 +3447,91 @@ $("analysis-post-btn")
 
             const bodyHeight =
                 Math.max(
-                    3,
-                    bodyBottom -
-                    bodyTop
+                    CONFIG.bodyMin,
+                    bodyBottom - bodyTop
                 );
 
             const color =
                 bullish
-                    ? "#22c55e"
-                    : "#ef4444";
+                    ? upColor
+                    : downColor;
 
-            ctx.strokeStyle =
-                color;
+            /*
+             * Soft glow behind the larger candles.
+             * The glow is deliberately restrained so
+             * foreground dashboard content remains dominant.
+             */
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 14;
+            ctx.globalAlpha = .18;
 
-            ctx.fillStyle =
-                color;
+            ctx.fillStyle = color;
 
-            ctx.lineWidth =
-                1;
+            ctx.fillRect(
+                candle.x,
+                bodyTop,
+                CONFIG.candleWidth,
+                bodyHeight
+            );
+
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = .38;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
 
             ctx.beginPath();
 
             ctx.moveTo(
                 candle.x +
-                candleWidth/2,
+                CONFIG.candleWidth / 2,
                 candle.high
             );
 
             ctx.lineTo(
                 candle.x +
-                candleWidth/2,
+                CONFIG.candleWidth / 2,
                 candle.low
             );
 
             ctx.stroke();
 
-            ctx.globalAlpha =
-                .38;
+            ctx.globalAlpha = .30;
 
             ctx.fillRect(
                 candle.x,
                 bodyTop,
-                candleWidth,
+                CONFIG.candleWidth,
                 bodyHeight
             );
-
-            ctx.globalAlpha =
-                .75;
         }
 
         ctx.restore();
     }
 
-    function animate(){
+    function animate(timestamp){
 
-        update();
-        draw();
+        if(
+            timestamp - lastFrame >
+            20
+        ){
+            update();
+            draw();
+            lastFrame = timestamp;
+        }
 
-        requestAnimationFrame(
-            animate
-        );
+        requestAnimationFrame(animate);
     }
+
+    /*
+     * Rebuild the entire scene whenever a dashboard
+     * page changes. This gives each tab its own
+     * background composition instead of one reused scene.
+     */
+    window.refreshMarketBackground = function(){
+        createCandles();
+        draw();
+    };
 
     window.addEventListener(
         "resize",
@@ -3348,7 +3539,7 @@ $("analysis-post-btn")
     );
 
     resize();
-    animate();
+    requestAnimationFrame(animate);
 
 })();
 
