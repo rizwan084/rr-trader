@@ -52,8 +52,14 @@ class AnalysisEngine:
     SUPPORT_TOUCH_TOLERANCE = 0.75
     RESISTANCE_TOUCH_TOLERANCE = 0.75
 
+    # A valid trade candidate must have at least two
+    # meaningful interactions with the same S/R level.
     STRONG_SUPPORT_TOUCHES = 2
     STRONG_RESISTANCE_TOUCHES = 2
+
+    # Location must be close to the actual level; being merely
+    # above support or below resistance is NOT enough.
+    REQUIRE_LEVEL_LOCATION = True
 
     MIN_RR = 1.50
     GOOD_RR = 2.00
@@ -614,264 +620,205 @@ class AnalysisEngine:
         current_price: float,
         market_data: dict[str, Any],
     ) -> dict[str, Any]:
+        """
+        Detect ONLY location-first trade setups.
 
-        structure_state = cls._upper(
-            structure.get(
-                "state",
-                structure.get(
-                    "trend",
-                    "",
-                ),
-            )
-        )
+        RR Trader must not turn a top gainer/top loser, a random
+        breakout, or a generic trend into a signal. The preferred
+        candidates are: 
+          LONG  = repeated support interaction + bullish reaction
+          SHORT = repeated resistance interaction + bearish reaction
+
+        Range-location and breakout-only setups are intentionally
+        not promoted to trade candidates here.
+        """
 
         structure_direction = cls._upper(
             structure.get(
                 "direction",
-                structure.get(
-                    "bias",
-                    "",
-                ),
+                structure.get("bias", ""),
             )
         )
 
-        candle = indicators.get(
-            "candle_structure",
-            {}
-        )
-
-        if not isinstance(
-            candle,
-            dict,
-        ):
+        candle = indicators.get("candle_structure", {})
+        if not isinstance(candle, dict):
             candle = {}
 
-        bullish_rejection = (
-            cls._bool(
-                candle.get(
-                    "bullish_rejection"
-                )
-            )
+        bullish_rejection = cls._bool(
+            candle.get("bullish_rejection")
+        )
+        bearish_rejection = cls._bool(
+            candle.get("bearish_rejection")
         )
 
-        bearish_rejection = (
-            cls._bool(
-                candle.get(
-                    "bearish_rejection"
-                )
-            )
-
-        range_data = indicators.get(
-            "recent_range",
-            {}
+        open_price = cls._float(
+            candle.get("open", indicators.get("open"))
+        )
+        close_price = cls._float(
+            candle.get("close", indicators.get("close", current_price))
         )
 
-        if not isinstance(
-            range_data,
-            dict,
-        ):
-            range_data = {}
+        bullish_candle = (
+            close_price > open_price > 0
+        )
+        bearish_candle = (
+            open_price > close_price > 0
+        )
 
-        position = cls._float(
-            range_data.get(
-                "position_percent"
-            )
+        momentum = cls._float(
+            indicators.get("momentum")
+        )
+        momentum_analysis = indicators.get(
+            "momentum_analysis", {}
+        )
+        if not isinstance(momentum_analysis, dict):
+            momentum_analysis = {}
+
+        momentum_state = cls._upper(
+            momentum_analysis.get("state")
+        )
+
+        bullish_reaction = (
+            bullish_rejection
+            or bullish_candle
+            or momentum > 0
+            or momentum_state in {
+                "ACCELERATING_UP",
+                "BULLISH",
+                "RISING",
+            }
+        )
+        bearish_reaction = (
+            bearish_rejection
+            or bearish_candle
+            or momentum < 0
+            or momentum_state in {
+                "ACCELERATING_DOWN",
+                "BEARISH",
+                "FALLING",
+            }
         )
 
         support_touches = cls._float(
             structure.get(
                 "support_touches",
-                structure.get(
-                    "support_touch_count",
-                    0,
-                ),
+                structure.get("support_touch_count", 0),
             )
         )
-
         resistance_touches = cls._float(
             structure.get(
                 "resistance_touches",
-                structure.get(
-                    "resistance_touch_count",
-                    0,
-                ),
+                structure.get("resistance_touch_count", 0),
             )
         )
 
-        # -------------------------------------------------
-        # LONG SUPPORT BOUNCE
-        # -------------------------------------------------
+        def near_level(price: float, level: float, tolerance: float) -> bool:
+            if price <= 0 or level <= 0:
+                return False
+            distance = abs(price - level) / level * 100.0
+            return distance <= tolerance
+
+        near_support = near_level(
+            current_price,
+            support,
+            cls.SUPPORT_TOUCH_TOLERANCE,
+        )
+        near_resistance = near_level(
+            current_price,
+            resistance,
+            cls.RESISTANCE_TOUCH_TOLERANCE,
+        )
 
         support_bounce = (
             support > 0
-            and current_price >= support
+            and support_touches >= cls.STRONG_SUPPORT_TOUCHES
             and (
-                support_touches
-                >= cls.STRONG_SUPPORT_TOUCHES
+                near_support
+                if cls.REQUIRE_LEVEL_LOCATION
+                else current_price >= support
             )
-            and (
-                bullish_rejection
-                or structure_direction
-                == "LONG"
-            )
+            and bullish_reaction
+            and structure_direction != "SHORT"
         )
 
         if support_bounce:
-
             return {
                 "type": "SUPPORT_BOUNCE",
                 "direction": "LONG",
                 "priority": "HIGH",
+                "trade_candidate": True,
                 "support": support,
                 "resistance": resistance,
-                "support_touches": int(
-                    support_touches
+                "support_touches": int(support_touches),
+                "distance_to_support_percent": (
+                    abs(current_price - support) / support * 100.0
+                    if support > 0 and current_price > 0
+                    else 0.0
                 ),
+                "reaction_confirmed": True,
                 "reason": (
-                    "Repeated support interaction "
-                    "with bullish reaction."
+                    "Repeated support interaction confirmed with "
+                    "a bullish reaction near the support level."
                 ),
             }
-
-        # -------------------------------------------------
-        # SHORT RESISTANCE REJECTION
-        # -------------------------------------------------
 
         resistance_rejection = (
             resistance > 0
-            and current_price <= resistance
+            and resistance_touches >= cls.STRONG_RESISTANCE_TOUCHES
             and (
-                resistance_touches
-                >= cls.STRONG_RESISTANCE_TOUCHES
+                near_resistance
+                if cls.REQUIRE_LEVEL_LOCATION
+                else current_price <= resistance
             )
-            and (
-                bearish_rejection
-                or structure_direction
-                == "SHORT"
-            )
+            and bearish_reaction
+            and structure_direction != "LONG"
         )
 
         if resistance_rejection:
-
             return {
-                "type": (
-                    "RESISTANCE_REJECTION"
-                ),
+                "type": "RESISTANCE_REJECTION",
                 "direction": "SHORT",
                 "priority": "HIGH",
+                "trade_candidate": True,
                 "support": support,
                 "resistance": resistance,
-                "resistance_touches": int(
-                    resistance_touches
+                "resistance_touches": int(resistance_touches),
+                "distance_to_resistance_percent": (
+                    abs(current_price - resistance) / resistance * 100.0
+                    if resistance > 0 and current_price > 0
+                    else 0.0
                 ),
+                "reaction_confirmed": True,
                 "reason": (
-                    "Repeated resistance interaction "
-                    "with bearish reaction."
+                    "Repeated resistance interaction confirmed with "
+                    "a bearish reaction near the resistance level."
                 ),
             }
 
-        # -------------------------------------------------
-        # RANGE LOCATION
-        # -------------------------------------------------
-
-        if (
-            position <= 30
-            and structure_direction
-            == "LONG"
-        ):
-
-            return {
-                "type": "RANGE_LOW_LONG",
-                "direction": "LONG",
-                "priority": "MEDIUM",
-                "support": support,
-                "resistance": resistance,
-                "reason": (
-                    "Price is located near "
-                    "the lower range."
-                ),
-            }
-
-        if (
-            position >= 70
-            and structure_direction
-            == "SHORT"
-        ):
-
-            return {
-                "type": "RANGE_HIGH_SHORT",
-                "direction": "SHORT",
-                "priority": "MEDIUM",
-                "support": support,
-                "resistance": resistance,
-                "reason": (
-                    "Price is located near "
-                    "the upper range."
-                ),
-            }
-
-        # -------------------------------------------------
-        # BREAKOUT
-        # -------------------------------------------------
-
-        breakout = indicators.get(
-            "breakout",
-            {}
-        )
-
-        if isinstance(
-            breakout,
-            dict,
-        ):
-
-            breakout_direction = (
-                cls._upper(
-                    breakout.get(
-                        "direction"
-                    )
-                )
-            )
-
-            if breakout_direction in {
-                "LONG",
-                "SHORT",
-            }:
-
-                return {
-                    "type": (
-                        "BREAKOUT_"
-                        + breakout_direction
-                    ),
-                    "direction": (
-                        breakout_direction
-                    ),
-                    "priority": "MEDIUM",
-                    "support": support,
-                    "resistance": resistance,
-                    "reason": (
-                        "Price has broken "
-                        "the recent range."
-                    ),
-                }
-
+        # Do NOT promote generic range-location or breakout-only
+        # conditions into trade candidates. They remain evidence for
+        # the other analysis points, but they cannot create a signal.
         return {
             "type": "NONE",
             "direction": (
                 direction
-                if direction in {
-                    "LONG",
-                    "SHORT",
-                }
+                if direction in {"LONG", "SHORT"}
                 else "NEUTRAL"
             ),
             "priority": "LOW",
+            "trade_candidate": False,
             "support": support,
             "resistance": resistance,
+            "support_touches": int(support_touches),
+            "resistance_touches": int(resistance_touches),
+            "near_support": near_support,
+            "near_resistance": near_resistance,
             "reason": (
-                "No high-quality location "
-                "setup detected."
+                "No strict repeated-support bounce or repeated-"
+                "resistance rejection setup confirmed."
             ),
         }
+
 
     # =====================================================
     # POINT 1 - MARKET REGIME
@@ -2717,7 +2664,7 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         indicators = (
-            cls._extract_indicators(
+            self._extract_indicators(
                 data
             )
             if hasattr(
@@ -2728,12 +2675,12 @@ class AnalysisEngine:
         )
 
         structure = (
-            cls._extract_structure(
+            self._extract_structure(
                 data
             )
         )
 
-        price = cls._float(
+        price = self._float(
             indicators.get(
                 "price",
                 data.get(
@@ -2743,7 +2690,7 @@ class AnalysisEngine:
         )
 
         support, resistance = (
-            cls._extract_levels(
+            self._extract_levels(
                 data,
                 structure,
             )
@@ -2753,7 +2700,7 @@ class AnalysisEngine:
         # SUPPORT / RESISTANCE TOUCH
         # -------------------------------------------------
 
-        support_touches = cls._float(
+        support_touches = self._float(
             structure.get(
                 "support_touches",
                 structure.get(
@@ -2763,7 +2710,7 @@ class AnalysisEngine:
             )
         )
 
-        resistance_touches = cls._float(
+        resistance_touches = self._float(
             structure.get(
                 "resistance_touches",
                 structure.get(
@@ -2787,10 +2734,10 @@ class AnalysisEngine:
             )
 
             support_touches = (
-                cls._touch_count(
+                self._touch_count(
                     lows,
                     support,
-                    cls.SUPPORT_TOUCH_TOLERANCE,
+                    self.SUPPORT_TOUCH_TOLERANCE,
                 )
             )
 
@@ -2808,10 +2755,10 @@ class AnalysisEngine:
             )
 
             resistance_touches = (
-                cls._touch_count(
+                self._touch_count(
                     highs,
                     resistance,
-                    cls.RESISTANCE_TOUCH_TOLERANCE,
+                    self.RESISTANCE_TOUCH_TOLERANCE,
                 )
             )
 
@@ -2831,9 +2778,9 @@ class AnalysisEngine:
         # SETUP
         # -------------------------------------------------
 
-        setup = cls._determine_setup(
+        setup = self._determine_setup(
             direction=(
-                cls._upper(
+                self._upper(
                     direction
                 )
             ),
@@ -2888,8 +2835,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["1"] = (
-            cls._market_regime(
-                cls.MARKET_POINTS[0],
+            self._market_regime(
+                self.MARKET_POINTS[0],
                 indicators,
             )
         )
@@ -2899,8 +2846,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["2"] = (
-            cls._market_structure(
-                cls.MARKET_POINTS[1],
+            self._market_structure(
+                self.MARKET_POINTS[1],
                 structure,
             )
         )
@@ -2910,8 +2857,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["3"] = (
-            cls._mtf_confirmation(
-                cls.MARKET_POINTS[2],
+            self._mtf_confirmation(
+                self.MARKET_POINTS[2],
                 data,
             )
         )
@@ -2921,8 +2868,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["4"] = (
-            cls._entry_location(
-                cls.MARKET_POINTS[3],
+            self._entry_location(
+                self.MARKET_POINTS[3],
                 setup,
             )
         )
@@ -2932,8 +2879,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["5"] = (
-            cls._liquidity_sweep(
-                cls.MARKET_POINTS[4],
+            self._liquidity_sweep(
+                self.MARKET_POINTS[4],
                 data,
             )
         )
@@ -2943,8 +2890,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["6"] = (
-            cls._vwap(
-                cls.MARKET_POINTS[5],
+            self._vwap(
+                self.MARKET_POINTS[5],
                 indicators,
             )
         )
@@ -2954,8 +2901,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["7"] = (
-            cls._atr(
-                cls.MARKET_POINTS[6],
+            self._atr(
+                self.MARKET_POINTS[6],
                 indicators,
             )
         )
@@ -2965,8 +2912,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["8"] = (
-            cls._momentum(
-                cls.MARKET_POINTS[7],
+            self._momentum(
+                self.MARKET_POINTS[7],
                 indicators,
             )
         )
@@ -2976,8 +2923,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["9"] = (
-            cls._divergence(
-                cls.MARKET_POINTS[8],
+            self._divergence(
+                self.MARKET_POINTS[8],
                 data,
             )
         )
@@ -2987,8 +2934,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["10"] = (
-            cls._breakout(
-                cls.MARKET_POINTS[9],
+            self._breakout(
+                self.MARKET_POINTS[9],
                 indicators,
             )
         )
@@ -2998,8 +2945,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["11"] = (
-            cls._retest(
-                cls.MARKET_POINTS[10],
+            self._retest(
+                self.MARKET_POINTS[10],
                 data,
             )
         )
@@ -3009,8 +2956,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["12"] = (
-            cls._derivatives(
-                cls.MARKET_POINTS[11],
+            self._derivatives(
+                self.MARKET_POINTS[11],
                 data,
             )
         )
@@ -3020,8 +2967,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["13"] = (
-            cls._liquidations(
-                cls.MARKET_POINTS[12],
+            self._liquidations(
+                self.MARKET_POINTS[12],
                 data,
             )
         )
@@ -3031,8 +2978,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["14"] = (
-            cls._order_book(
-                cls.MARKET_POINTS[13],
+            self._order_book(
+                self.MARKET_POINTS[13],
                 data,
             )
         )
@@ -3042,8 +2989,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["15"] = (
-            cls._tradeability(
-                cls.MARKET_POINTS[14],
+            self._tradeability(
+                self.MARKET_POINTS[14],
                 data,
                 indicators,
             )
@@ -3054,8 +3001,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["16"] = (
-            cls._news_risk(
-                cls.MARKET_POINTS[15],
+            self._news_risk(
+                self.MARKET_POINTS[15],
                 data,
             )
         )
@@ -3065,8 +3012,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["17"] = (
-            cls._btc_context(
-                cls.MARKET_POINTS[16],
+            self._btc_context(
+                self.MARKET_POINTS[16],
                 data,
             )
         )
@@ -3076,8 +3023,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["18"] = (
-            cls._relative_strength(
-                cls.MARKET_POINTS[17],
+            self._relative_strength(
+                self.MARKET_POINTS[17],
                 data,
             )
         )
@@ -3087,8 +3034,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["19"] = (
-            cls._risk_reward(
-                cls.MARKET_POINTS[18],
+            self._risk_reward(
+                self.MARKET_POINTS[18],
                 data,
             )
         )
@@ -3098,8 +3045,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["20"] = (
-            cls._stop_quality(
-                cls.MARKET_POINTS[19],
+            self._stop_quality(
+                self.MARKET_POINTS[19],
                 data,
             )
         )
@@ -3109,8 +3056,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["21"] = (
-            cls._position_sizing(
-                cls.RISK_POINTS[0],
+            self._position_sizing(
+                self.RISK_POINTS[0],
                 data,
             )
         )
@@ -3120,8 +3067,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["22"] = (
-            cls._portfolio_risk(
-                cls.RISK_POINTS[1],
+            self._portfolio_risk(
+                self.RISK_POINTS[1],
                 data,
             )
         )
@@ -3131,8 +3078,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["23"] = (
-            cls._execution_quality(
-                cls.RISK_POINTS[2],
+            self._execution_quality(
+                self.RISK_POINTS[2],
                 data,
             )
         )
@@ -3142,8 +3089,8 @@ class AnalysisEngine:
         # -------------------------------------------------
 
         result["points"]["24"] = (
-            cls._signal_freshness(
-                cls.RISK_POINTS[3],
+            self._signal_freshness(
+                self.RISK_POINTS[3],
                 data,
             )
         )
@@ -3152,82 +3099,58 @@ class AnalysisEngine:
         # AGGREGATION
         # -------------------------------------------------
 
-        result = cls._aggregate(
+        result = self._aggregate(
             result
         )
 
         # -------------------------------------------------
-        # SETUP-SPECIFIC PRIORITY
+        # SETUP-SPECIFIC PRIORITY / SIGNAL GATE
         # -------------------------------------------------
 
-        if (
-            result.get(
-                "setup_type"
+        if result.get("setup_type") == "SUPPORT_BOUNCE":
+            result["setup_message"] = (
+                "High-priority LONG candidate: repeated support "
+                "interaction plus bullish reaction confirmed."
             )
-            == "SUPPORT_BOUNCE"
-        ):
-
-            result[
-                "setup_message"
-            ] = (
-                "Potential support bounce: "
-                "repeated support interaction "
-                "with bullish reaction."
+        elif result.get("setup_type") == "RESISTANCE_REJECTION":
+            result["setup_message"] = (
+                "High-priority SHORT candidate: repeated resistance "
+                "interaction plus bearish reaction confirmed."
             )
-
-        elif (
-            result.get(
-                "setup_type"
-            )
-            == "RESISTANCE_REJECTION"
-        ):
-
-            result[
-                "setup_message"
-            ] = (
-                "Potential resistance rejection: "
-                "repeated resistance interaction "
-                "with bearish reaction."
-            )
-
         else:
-
-            result[
-                "setup_message"
-            ] = (
-                "No high-priority support/"
-                "resistance setup confirmed."
+            result["setup_message"] = (
+                "Rejected as a trade candidate: strict support/resistance "
+                "location and reaction criteria are not both confirmed."
             )
 
-        # -------------------------------------------------
-        # FINAL STATUS
-        # -------------------------------------------------
+        critical_failures = result.get(
+            "critical_failures",
+            [],
+        )
 
-        if result[
-            "critical_failures"
-        ]:
+        trade_candidate = bool(
+            result.get("setup", {}).get(
+                "trade_candidate",
+                False,
+            )
+        )
 
-            result[
-                "status"
-            ] = "critical_failure"
+        result["trade_candidate"] = trade_candidate
+        result["signal_allowed"] = bool(
+            trade_candidate
+            and not critical_failures
+        )
 
-        elif (
-            result[
-                "market_confirmation_count"
-            ]
-            > 0
-        ):
-
-            result[
-                "status"
-            ] = "analysis_complete"
-
+        # Final status is deliberately strict. A market confirmation
+        # by itself is NOT enough to create a trade.
+        if critical_failures:
+            result["status"] = "critical_failure"
+        elif result["signal_allowed"]:
+            result["status"] = "trade_candidate"
+        elif result.get("market_confirmation_count", 0) > 0:
+            result["status"] = "analysis_complete_no_setup"
         else:
-
-            result[
-                "status"
-            ] = "insufficient_evidence"
-
+            result["status"] = "insufficient_evidence"
         return result
 
 
