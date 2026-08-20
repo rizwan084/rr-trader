@@ -17,6 +17,33 @@ from app.services.auto_scanner import auto_scanner
 
 
 # =========================================================
+# RR TRADER APPLICATION CONFIGURATION
+# =========================================================
+
+APP_VERSION = "2.3.0"
+
+STRATEGY_MODE = "SETUP_QUALITY"
+
+MINIMUM_CONFIDENCE = 85.0
+
+MIN_SUPPORT_TOUCHES = 2
+MIN_RESISTANCE_TOUCHES = 2
+
+PRIMARY_SETUP_TYPES = (
+    "SUPPORT_BOUNCE",
+    "RESISTANCE_REJECTION",
+)
+
+CORE_TIMEFRAMES = (
+    "15m",
+    "1h",
+    "4h",
+)
+
+SCANNER_REFRESH_SECONDS = 60
+
+
+# =========================================================
 # PROJECT PATHS
 # =========================================================
 
@@ -40,10 +67,12 @@ app = FastAPI(
     title="RR Trader Live Crypto Trading Scanner",
     description=(
         "AI-powered crypto market scanner "
-        "with multi-exchange analysis and "
-        "liquidation intelligence."
+        "with multi-exchange analysis, "
+        "market-structure intelligence, "
+        "support/resistance setup detection "
+        "and liquidation intelligence."
     ),
-    version="2.2.0",
+    version=APP_VERSION,
 )
 
 
@@ -52,6 +81,7 @@ app = FastAPI(
 # =========================================================
 
 if PAGES_DIR.is_dir():
+
     app.mount(
         "/pages",
         StaticFiles(
@@ -63,6 +93,7 @@ if PAGES_DIR.is_dir():
 
 
 if SERVICES_DIR.is_dir():
+
     app.mount(
         "/frontend-services",
         StaticFiles(
@@ -73,6 +104,7 @@ if SERVICES_DIR.is_dir():
 
 
 if CHARTS_DIR.is_dir():
+
     app.mount(
         "/frontend-charts",
         StaticFiles(
@@ -83,6 +115,7 @@ if CHARTS_DIR.is_dir():
 
 
 if COMPONENTS_DIR.is_dir():
+
     app.mount(
         "/frontend-components",
         StaticFiles(
@@ -93,6 +126,7 @@ if COMPONENTS_DIR.is_dir():
 
 
 if ASSETS_DIR.is_dir():
+
     app.mount(
         "/assets",
         StaticFiles(
@@ -145,6 +179,50 @@ async def dashboard():
 
 
 # =========================================================
+# STRATEGY CONFIGURATION
+# =========================================================
+
+@app.get("/api/strategy/config")
+async def strategy_config():
+
+    return {
+        "success": True,
+        "version": APP_VERSION,
+        "strategy_mode": STRATEGY_MODE,
+
+        "signal_policy": {
+            "top_gainers_alone": False,
+            "top_losers_alone": False,
+            "setup_quality_required": True,
+            "minimum_confidence": MINIMUM_CONFIDENCE,
+        },
+
+        "required_setup_types": list(
+            PRIMARY_SETUP_TYPES
+        ),
+
+        "support": {
+            "minimum_touches":
+                MIN_SUPPORT_TOUCHES,
+            "required_for_long": True,
+        },
+
+        "resistance": {
+            "minimum_touches":
+                MIN_RESISTANCE_TOUCHES,
+            "required_for_short": True,
+        },
+
+        "core_timeframes": list(
+            CORE_TIMEFRAMES
+        ),
+
+        "scanner_refresh_seconds":
+            SCANNER_REFRESH_SECONDS,
+    }
+
+
+# =========================================================
 # HEALTH
 # =========================================================
 
@@ -152,7 +230,10 @@ async def dashboard():
 async def health():
 
     try:
-        scanner_state = auto_scanner.snapshot()
+
+        scanner_state = (
+            auto_scanner.snapshot()
+        )
 
     except Exception as exc:
 
@@ -163,22 +244,56 @@ async def health():
 
     return {
         "success": True,
+
         "app": "RR Trader",
+
         "status": "healthy",
-        "version": "2.2.0",
+
+        "version": APP_VERSION,
+
+        "strategy": {
+            "mode": STRATEGY_MODE,
+            "minimum_confidence":
+                MINIMUM_CONFIDENCE,
+
+            "support_bounce": {
+                "enabled": True,
+                "minimum_touches":
+                    MIN_SUPPORT_TOUCHES,
+            },
+
+            "resistance_rejection": {
+                "enabled": True,
+                "minimum_touches":
+                    MIN_RESISTANCE_TOUCHES,
+            },
+
+            "top_mover_only_signals": False,
+
+            "core_timeframes":
+                list(CORE_TIMEFRAMES),
+        },
 
         "frontend": {
-            "directory_exists": FRONTEND_DIR.is_dir(),
-            "index_exists": FRONTEND_INDEX.is_file(),
-            "pages_exists": PAGES_DIR.is_dir(),
-            "charts_exists": CHARTS_DIR.is_dir(),
+            "directory_exists":
+                FRONTEND_DIR.is_dir(),
+
+            "index_exists":
+                FRONTEND_INDEX.is_file(),
+
+            "pages_exists":
+                PAGES_DIR.is_dir(),
+
+            "charts_exists":
+                CHARTS_DIR.is_dir(),
         },
 
         "scanner": scanner_state,
 
         "liquidation": {
             "enabled": True,
-            "endpoint": "/api/liquidation/status",
+            "endpoint":
+                "/api/liquidation/status",
         },
     }
 
@@ -245,6 +360,10 @@ async def startup_event():
     print("=" * 60)
 
     print(
+        f"Application version: {APP_VERSION}"
+    )
+
+    print(
         f"Project root: {PROJECT_ROOT}"
     )
 
@@ -269,6 +388,42 @@ async def startup_event():
     )
 
     print(
+        "Strategy mode: "
+        f"{STRATEGY_MODE}"
+    )
+
+    print(
+        "Minimum confidence: "
+        f"{MINIMUM_CONFIDENCE}"
+    )
+
+    print(
+        "Minimum support touches: "
+        f"{MIN_SUPPORT_TOUCHES}"
+    )
+
+    print(
+        "Minimum resistance touches: "
+        f"{MIN_RESISTANCE_TOUCHES}"
+    )
+
+    print(
+        "Top-gainer/top-loser-only signals: "
+        "DISABLED"
+    )
+
+    print(
+        "Required setups: "
+        "SUPPORT_BOUNCE / "
+        "RESISTANCE_REJECTION"
+    )
+
+    print(
+        "Core timeframes: "
+        "15m / 1h / 4h"
+    )
+
+    print(
         "Liquidation Intelligence: ENABLED"
     )
 
@@ -286,7 +441,8 @@ async def startup_event():
         )
 
         print(
-            "Scanner refresh: 60 seconds."
+            "Scanner refresh: "
+            f"{SCANNER_REFRESH_SECONDS} seconds."
         )
 
     except Exception as exc:
