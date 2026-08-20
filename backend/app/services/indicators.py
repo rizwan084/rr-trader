@@ -5,17 +5,61 @@ from typing import Any
 
 class IndicatorEngine:
     """
-    Deterministic technical-indicator calculations for RR Trader.
+    RR Trader deterministic technical-indicator engine.
 
-    Input:
-        Binance kline arrays.
+    Responsibilities:
+    - Parse Binance klines.
+    - Calculate trend indicators.
+    - Calculate momentum.
+    - Calculate volatility.
+    - Calculate volume confirmation.
+    - Analyse candle structure.
+    - Detect breakout conditions.
+    - Produce technical evidence for downstream engines.
 
-    Output:
-        Plain Python dictionaries suitable for the
-        analysis engine.
+    IMPORTANT:
+    This engine does NOT make the final LONG/SHORT decision.
 
-    This layer does NOT decide LONG/SHORT by itself.
+    Final trade decisions are handled by downstream analysis,
+    confidence and signal engines.
     """
+
+    # =====================================================
+    # CONFIGURATION
+    # =====================================================
+
+    EMA_FAST = 20
+    EMA_MEDIUM = 50
+    EMA_SLOW = 200
+
+    RSI_PERIOD = 14
+
+    ATR_PERIOD = 14
+
+    VOLUME_PERIOD = 20
+
+    MOMENTUM_LOOKBACK = 5
+
+    RANGE_LOOKBACK = 20
+
+    BREAKOUT_LOOKBACK = 20
+
+    # Minimum volume multiplier required for a strong
+    # volume confirmation.
+    STRONG_VOLUME_RATIO = 1.50
+
+    # Normal confirmation threshold.
+    CONFIRM_VOLUME_RATIO = 1.20
+
+    # RSI zones.
+    RSI_BULLISH = 55.0
+    RSI_BEARISH = 45.0
+
+    RSI_OVERBOUGHT = 70.0
+    RSI_OVERSOLD = 30.0
+
+    # Candle rejection thresholds.
+    MIN_WICK_RATIO = 0.35
 
     # =====================================================
     # SAFE NUMBER
@@ -35,6 +79,21 @@ class IndicatorEngine:
             ValueError,
         ):
             return default
+
+    # =====================================================
+    # SAFE LIST
+    # =====================================================
+
+    @classmethod
+    def _clean_values(
+        cls,
+        values: list[Any],
+    ) -> list[float]:
+
+        return [
+            cls._float(value)
+            for value in values
+        ]
 
     # =====================================================
     # CANDLE PARSER
@@ -63,24 +122,57 @@ class IndicatorEngine:
             if len(candle) < 6:
                 continue
 
+            open_price = cls._float(
+                candle[1]
+            )
+
+            high_price = cls._float(
+                candle[2]
+            )
+
+            low_price = cls._float(
+                candle[3]
+            )
+
+            close_price = cls._float(
+                candle[4]
+            )
+
+            volume = cls._float(
+                candle[5]
+            )
+
+            if (
+                high_price <= 0
+                or low_price <= 0
+                or close_price <= 0
+            ):
+                continue
+
+            if high_price < low_price:
+                continue
+
             opens.append(
-                cls._float(candle[1])
+                open_price
             )
 
             highs.append(
-                cls._float(candle[2])
+                high_price
             )
 
             lows.append(
-                cls._float(candle[3])
+                low_price
             )
 
             closes.append(
-                cls._float(candle[4])
+                close_price
             )
 
             volumes.append(
-                cls._float(candle[5])
+                max(
+                    0.0,
+                    volume,
+                )
             )
 
         return {
@@ -105,13 +197,13 @@ class IndicatorEngine:
         if not values:
             return 0.0
 
+        period = int(period)
+
         if period <= 0:
             return 0.0
 
         if len(values) < period:
 
-            # Fallback to simple average when
-            # there are not enough candles.
             return round(
                 sum(values)
                 / len(values),
@@ -125,9 +217,7 @@ class IndicatorEngine:
 
         ema_value = (
             sum(
-                values[
-                    :period
-                ]
+                values[:period]
             )
             / period
         )
@@ -148,6 +238,225 @@ class IndicatorEngine:
         )
 
     # =====================================================
+    # EMA SERIES
+    # =====================================================
+
+    @classmethod
+    def ema_series(
+        cls,
+        values: list[float],
+        period: int,
+    ) -> list[float]:
+
+        if not values:
+            return []
+
+        period = max(
+            1,
+            int(period),
+        )
+
+        if len(values) < period:
+
+            average = (
+                sum(values)
+                / len(values)
+            )
+
+            return [
+                round(
+                    average,
+                    8,
+                )
+                for _ in values
+            ]
+
+        multiplier = (
+            2.0
+            / (period + 1.0)
+        )
+
+        first_ema = (
+            sum(
+                values[:period]
+            )
+            / period
+        )
+
+        series = [
+            first_ema
+        ]
+
+        ema_value = first_ema
+
+        for value in values[period:]:
+
+            ema_value = (
+                (
+                    value
+                    - ema_value
+                )
+                * multiplier
+            ) + ema_value
+
+            series.append(
+                ema_value
+            )
+
+        prefix_count = (
+            len(values)
+            - len(series)
+        )
+
+        prefix = [
+            first_ema
+            for _ in range(
+                prefix_count
+            )
+        ]
+
+        return [
+            round(
+                value,
+                8,
+            )
+            for value
+            in (
+                prefix
+                + series
+            )
+        ]
+
+    # =====================================================
+    # EMA SLOPE
+    # =====================================================
+
+    @classmethod
+    def ema_slope(
+        cls,
+        values: list[float],
+        period: int,
+        lookback: int = 5,
+    ) -> float:
+
+        series = cls.ema_series(
+            values,
+            period,
+        )
+
+        if len(series) <= lookback:
+            return 0.0
+
+        previous = series[
+            -lookback - 1
+        ]
+
+        current = series[-1]
+
+        if previous == 0:
+            return 0.0
+
+        return round(
+            (
+                (
+                    current
+                    - previous
+                )
+                / previous
+            )
+            * 100.0,
+            6,
+        )
+
+    # =====================================================
+    # EMA ALIGNMENT
+    # =====================================================
+
+    @classmethod
+    def ema_alignment(
+        cls,
+        price: float,
+        ema20: float,
+        ema50: float,
+        ema200: float,
+    ) -> dict[str, Any]:
+
+        if (
+            price <= 0
+            or ema20 <= 0
+            or ema50 <= 0
+        ):
+
+            return {
+                "state": "UNKNOWN",
+                "bullish": False,
+                "bearish": False,
+                "score": 0,
+            }
+
+        bullish = (
+            price > ema20
+            and ema20 > ema50
+        )
+
+        bearish = (
+            price < ema20
+            and ema20 < ema50
+        )
+
+        strong_bullish = (
+            bullish
+            and (
+                ema50 > ema200
+                if ema200 > 0
+                else True
+            )
+        )
+
+        strong_bearish = (
+            bearish
+            and (
+                ema50 < ema200
+                if ema200 > 0
+                else True
+            )
+        )
+
+        if strong_bullish:
+
+            state = "STRONG_BULLISH"
+            score = 3
+
+        elif strong_bearish:
+
+            state = "STRONG_BEARISH"
+            score = -3
+
+        elif bullish:
+
+            state = "BULLISH"
+            score = 2
+
+        elif bearish:
+
+            state = "BEARISH"
+            score = -2
+
+        else:
+
+            state = "MIXED"
+            score = 0
+
+        return {
+            "state": state,
+            "bullish": bullish,
+            "bearish": bearish,
+            "strong_bullish": strong_bullish,
+            "strong_bearish": strong_bearish,
+            "score": score,
+        }
+
+    # =====================================================
     # RSI
     # =====================================================
 
@@ -155,7 +464,7 @@ class IndicatorEngine:
     def rsi(
         cls,
         closes: list[float],
-        period: int = 14,
+        period: int = RSI_PERIOD,
     ) -> float:
 
         if len(closes) <= period:
@@ -251,6 +560,108 @@ class IndicatorEngine:
         )
 
     # =====================================================
+    # RSI SERIES
+    # =====================================================
+
+    @classmethod
+    def rsi_series(
+        cls,
+        closes: list[float],
+        period: int = RSI_PERIOD,
+    ) -> list[float]:
+
+        if len(closes) <= period:
+            return []
+
+        output: list[float] = []
+
+        for end in range(
+            period + 1,
+            len(closes) + 1,
+        ):
+
+            value = cls.rsi(
+                closes[:end],
+                period,
+            )
+
+            output.append(
+                value
+            )
+
+        return output
+
+    # =====================================================
+    # RSI DIRECTION
+    # =====================================================
+
+    @classmethod
+    def rsi_direction(
+        cls,
+        closes: list[float],
+        period: int = RSI_PERIOD,
+    ) -> dict[str, Any]:
+
+        series = cls.rsi_series(
+            closes,
+            period,
+        )
+
+        if len(series) < 2:
+
+            value = cls.rsi(
+                closes,
+                period,
+            )
+
+            return {
+                "current": value,
+                "previous": value,
+                "change": 0.0,
+                "direction": "NEUTRAL",
+                "rising": False,
+                "falling": False,
+            }
+
+        current = series[-1]
+        previous = series[-2]
+
+        change = (
+            current
+            - previous
+        )
+
+        if change > 0.5:
+
+            direction = "RISING"
+
+        elif change < -0.5:
+
+            direction = "FALLING"
+
+        else:
+
+            direction = "FLAT"
+
+        return {
+            "current": round(
+                current,
+                4,
+            ),
+            "previous": round(
+                previous,
+                4,
+            ),
+            "change": round(
+                change,
+                4,
+            ),
+            "direction": direction,
+            "rising": change > 0,
+            "falling": change < 0,
+        }
+
+    # =====================================================
     # ATR
     # =====================================================
 
@@ -260,7 +671,7 @@ class IndicatorEngine:
         highs: list[float],
         lows: list[float],
         closes: list[float],
-        period: int = 14,
+        period: int = ATR_PERIOD,
     ) -> float:
 
         if (
@@ -272,16 +683,28 @@ class IndicatorEngine:
 
         true_ranges: list[float] = []
 
+        length = min(
+            len(highs),
+            len(lows),
+            len(closes),
+        )
+
         for index in range(
             1,
-            len(closes),
+            length,
         ):
 
-            high = highs[index]
-            low = lows[index]
-            previous_close = closes[
-                index - 1
-            ]
+            high = cls._float(
+                highs[index]
+            )
+
+            low = cls._float(
+                lows[index]
+            )
+
+            previous_close = cls._float(
+                closes[index - 1]
+            )
 
             tr = max(
                 high - low,
@@ -307,9 +730,7 @@ class IndicatorEngine:
         ) < period:
 
             return round(
-                sum(
-                    true_ranges
-                )
+                sum(true_ranges)
                 / len(true_ranges),
                 8,
             )
@@ -322,6 +743,32 @@ class IndicatorEngine:
             )
             / period,
             8,
+        )
+
+    # =====================================================
+    # ATR PERCENT
+    # =====================================================
+
+    @classmethod
+    def atr_percent(
+        cls,
+        atr: float,
+        price: float,
+    ) -> float:
+
+        if (
+            atr <= 0
+            or price <= 0
+        ):
+            return 0.0
+
+        return round(
+            (
+                atr
+                / price
+            )
+            * 100.0,
+            6,
         )
 
     # =====================================================
@@ -370,7 +817,9 @@ class IndicatorEngine:
                 * volume
             )
 
-            cumulative_volume += volume
+            cumulative_volume += (
+                volume
+            )
 
         if cumulative_volume <= 0:
             return 0.0
@@ -382,6 +831,35 @@ class IndicatorEngine:
         )
 
     # =====================================================
+    # PRICE DISTANCE
+    # =====================================================
+
+    @classmethod
+    def price_distance(
+        cls,
+        price: float,
+        level: float,
+    ) -> float:
+
+        if (
+            price <= 0
+            or level <= 0
+        ):
+            return 0.0
+
+        return round(
+            (
+                (
+                    price
+                    - level
+                )
+                / level
+            )
+            * 100.0,
+            6,
+        )
+
+    # =====================================================
     # VOLUME AVERAGE
     # =====================================================
 
@@ -389,24 +867,119 @@ class IndicatorEngine:
     def average_volume(
         cls,
         volumes: list[float],
-        period: int = 20,
+        period: int = VOLUME_PERIOD,
     ) -> float:
 
         if not volumes:
             return 0.0
 
+        period = max(
+            1,
+            int(period),
+        )
+
         sample = volumes[
-            -max(
-                1,
-                period,
-            ):
+            -period:
         ]
+
+        if not sample:
+            return 0.0
 
         return round(
             sum(sample)
             / len(sample),
             8,
         )
+
+    # =====================================================
+    # VOLUME ANALYSIS
+    # =====================================================
+
+    @classmethod
+    def volume_analysis(
+        cls,
+        volumes: list[float],
+        period: int = VOLUME_PERIOD,
+    ) -> dict[str, Any]:
+
+        if not volumes:
+
+            return {
+                "current": 0.0,
+                "average": 0.0,
+                "ratio": 0.0,
+                "state": "UNKNOWN",
+                "confirmation": False,
+                "strong_confirmation": False,
+            }
+
+        current = cls._float(
+            volumes[-1]
+        )
+
+        average = cls.average_volume(
+            volumes,
+            period,
+        )
+
+        if average <= 0:
+
+            ratio = 0.0
+
+        else:
+
+            ratio = (
+                current
+                / average
+            )
+
+        if ratio >= (
+            cls.STRONG_VOLUME_RATIO
+        ):
+
+            state = "STRONG"
+            confirmation = True
+            strong_confirmation = True
+
+        elif ratio >= (
+            cls.CONFIRM_VOLUME_RATIO
+        ):
+
+            state = "CONFIRMED"
+            confirmation = True
+            strong_confirmation = False
+
+        elif ratio >= 0.80:
+
+            state = "NORMAL"
+            confirmation = False
+            strong_confirmation = False
+
+        else:
+
+            state = "LOW"
+            confirmation = False
+            strong_confirmation = False
+
+        return {
+            "current": round(
+                current,
+                8,
+            ),
+            "average": round(
+                average,
+                8,
+            ),
+            "ratio": round(
+                ratio,
+                6,
+            ),
+            "state": state,
+            "confirmation": confirmation,
+            "strong_confirmation": (
+                strong_confirmation
+            ),
+        }
 
     # =====================================================
     # MOMENTUM
@@ -416,7 +989,7 @@ class IndicatorEngine:
     def momentum(
         cls,
         closes: list[float],
-        lookback: int = 5,
+        lookback: int = MOMENTUM_LOOKBACK,
     ) -> float:
 
         if len(closes) <= lookback:
@@ -444,6 +1017,75 @@ class IndicatorEngine:
         )
 
     # =====================================================
+    # MOMENTUM ACCELERATION
+    # =====================================================
+
+    @classmethod
+    def momentum_acceleration(
+        cls,
+        closes: list[float],
+        lookback: int = MOMENTUM_LOOKBACK,
+    ) -> dict[str, Any]:
+
+        if len(closes) <= (
+            lookback * 2
+        ):
+
+            return {
+                "current": 0.0,
+                "previous": 0.0,
+                "acceleration": 0.0,
+                "state": "UNKNOWN",
+            }
+
+        current = cls.momentum(
+            closes,
+            lookback,
+        )
+
+        previous_closes = closes[
+            : -lookback
+        ]
+
+        previous = cls.momentum(
+            previous_closes,
+            lookback,
+        )
+
+        acceleration = (
+            current
+            - previous
+        )
+
+        if acceleration > 0.20:
+
+            state = "ACCELERATING_UP"
+
+        elif acceleration < -0.20:
+
+            state = "ACCELERATING_DOWN"
+
+        else:
+
+            state = "STABLE"
+
+        return {
+            "current": round(
+                current,
+                6,
+            ),
+            "previous": round(
+                previous,
+                6,
+            ),
+            "acceleration": round(
+                acceleration,
+                6,
+            ),
+            "state": state,
+        }
+
+    # =====================================================
     # CANDLE STRUCTURE
     # =====================================================
 
@@ -454,7 +1096,7 @@ class IndicatorEngine:
         highs: list[float],
         lows: list[float],
         closes: list[float],
-    ) -> dict[str, float | str]:
+    ) -> dict[str, Any]:
 
         if not (
             opens
@@ -470,12 +1112,27 @@ class IndicatorEngine:
                 "body_ratio": 0.0,
                 "upper_wick": 0.0,
                 "lower_wick": 0.0,
+                "upper_wick_ratio": 0.0,
+                "lower_wick_ratio": 0.0,
+                "bullish_rejection": False,
+                "bearish_rejection": False,
             }
 
-        open_price = opens[-1]
-        high_price = highs[-1]
-        low_price = lows[-1]
-        close_price = closes[-1]
+        open_price = cls._float(
+            opens[-1]
+        )
+
+        high_price = cls._float(
+            highs[-1]
+        )
+
+        low_price = cls._float(
+            lows[-1]
+        )
+
+        close_price = cls._float(
+            closes[-1]
+        )
 
         candle_range = max(
             0.0,
@@ -506,42 +1163,101 @@ class IndicatorEngine:
             - low_price,
         )
 
-        body_ratio = (
-            body
-            / candle_range
-            if candle_range > 0
-            else 0.0
+        if candle_range > 0:
+
+            body_ratio = (
+                body
+                / candle_range
+            )
+
+            upper_wick_ratio = (
+                upper_wick
+                / candle_range
+            )
+
+            lower_wick_ratio = (
+                lower_wick
+                / candle_range
+            )
+
+        else:
+
+            body_ratio = 0.0
+            upper_wick_ratio = 0.0
+            lower_wick_ratio = 0.0
+
+        if close_price > open_price:
+
+            direction = "LONG"
+
+        elif close_price < open_price:
+
+            direction = "SHORT"
+
+        else:
+
+            direction = "NEUTRAL"
+
+        bullish_rejection = (
+            direction == "LONG"
+            and lower_wick_ratio
+            >= cls.MIN_WICK_RATIO
+            and body_ratio
+            >= 0.20
         )
 
-        direction = (
-            "LONG"
-            if close_price > open_price
-            else "SHORT"
-            if close_price < open_price
-            else "NEUTRAL"
+        bearish_rejection = (
+            direction == "SHORT"
+            and upper_wick_ratio
+            >= cls.MIN_WICK_RATIO
+            and body_ratio
+            >= 0.20
         )
 
         return {
             "direction": direction,
+
             "body": round(
                 body,
                 8,
             ),
+
             "range": round(
                 candle_range,
                 8,
             ),
+
             "body_ratio": round(
                 body_ratio,
                 6,
             ),
+
             "upper_wick": round(
                 upper_wick,
                 8,
             ),
+
             "lower_wick": round(
                 lower_wick,
                 8,
+            ),
+
+            "upper_wick_ratio": round(
+                upper_wick_ratio,
+                6,
+            ),
+
+            "lower_wick_ratio": round(
+                lower_wick_ratio,
+                6,
+            ),
+
+            "bullish_rejection": (
+                bullish_rejection
+            ),
+
+            "bearish_rejection": (
+                bearish_rejection
             ),
         }
 
@@ -554,19 +1270,22 @@ class IndicatorEngine:
         cls,
         highs: list[float],
         lows: list[float],
-        lookback: int = 20,
+        closes: list[float],
+        lookback: int = RANGE_LOOKBACK,
     ) -> dict[str, float]:
 
         if not highs or not lows:
+
             return {
                 "high": 0.0,
                 "low": 0.0,
                 "position_percent": 50.0,
+                "range_percent": 0.0,
             }
 
         safe_lookback = max(
             1,
-            lookback,
+            int(lookback),
         )
 
         recent_highs = highs[
@@ -587,12 +1306,19 @@ class IndicatorEngine:
 
         current = (
             cls._float(
-                highs[-1]
+                closes[-1]
             )
-            + cls._float(
-                lows[-1]
+            if closes
+            else (
+                cls._float(
+                    highs[-1]
+                )
+                + cls._float(
+                    lows[-1]
+                )
             )
-        ) / 2.0
+            / 2.0
+        )
 
         price_range = (
             range_high
@@ -602,6 +1328,7 @@ class IndicatorEngine:
         if price_range <= 0:
 
             position_percent = 50.0
+            range_percent = 0.0
 
         else:
 
@@ -612,6 +1339,14 @@ class IndicatorEngine:
                 )
                 / price_range
                 * 100.0
+            )
+
+            range_percent = (
+                price_range
+                / current
+                * 100.0
+                if current > 0
+                else 0.0
             )
 
         return {
@@ -633,6 +1368,10 @@ class IndicatorEngine:
                 ),
                 4,
             ),
+            "range_percent": round(
+                range_percent,
+                6,
+            ),
         }
 
     # =====================================================
@@ -645,14 +1384,17 @@ class IndicatorEngine:
         highs: list[float],
         lows: list[float],
         closes: list[float],
-        lookback: int = 20,
+        lookback: int = BREAKOUT_LOOKBACK,
     ) -> dict[str, Any]:
 
         if len(closes) <= lookback:
+
             return {
                 "direction": "NONE",
                 "breakout": False,
                 "level": 0.0,
+                "distance_percent": 0.0,
+                "strength": "NONE",
             }
 
         previous_high = max(
@@ -673,24 +1415,430 @@ class IndicatorEngine:
 
         if current_close > previous_high:
 
+            distance = (
+                (
+                    current_close
+                    - previous_high
+                )
+                / previous_high
+                * 100.0
+                if previous_high > 0
+                else 0.0
+            )
+
+            if distance >= 1.0:
+                strength = "STRONG"
+
+            elif distance >= 0.30:
+                strength = "CONFIRMED"
+
+            else:
+                strength = "WEAK"
+
             return {
                 "direction": "LONG",
                 "breakout": True,
-                "level": previous_high,
+                "level": round(
+                    previous_high,
+                    8,
+                ),
+                "distance_percent": round(
+                    distance,
+                    6,
+                ),
+                "strength": strength,
             }
 
         if current_close < previous_low:
 
+            distance = (
+                (
+                    previous_low
+                    - current_close
+                )
+                / previous_low
+                * 100.0
+                if previous_low > 0
+                else 0.0
+            )
+
+            if distance >= 1.0:
+                strength = "STRONG"
+
+            elif distance >= 0.30:
+                strength = "CONFIRMED"
+
+            else:
+                strength = "WEAK"
+
             return {
                 "direction": "SHORT",
                 "breakout": True,
-                "level": previous_low,
+                "level": round(
+                    previous_low,
+                    8,
+                ),
+                "distance_percent": round(
+                    distance,
+                    6,
+                ),
+                "strength": strength,
             }
 
         return {
             "direction": "NONE",
             "breakout": False,
             "level": 0.0,
+            "distance_percent": 0.0,
+            "strength": "NONE",
+        }
+
+    # =====================================================
+    # TREND STATE
+    # =====================================================
+
+    @classmethod
+    def trend_state(
+        cls,
+        price: float,
+        ema20: float,
+        ema50: float,
+        ema200: float,
+        ema20_slope: float,
+        ema50_slope: float,
+    ) -> dict[str, Any]:
+
+        bullish_points = 0
+        bearish_points = 0
+
+        if price > ema20:
+            bullish_points += 1
+
+        elif price < ema20:
+            bearish_points += 1
+
+        if ema20 > ema50:
+            bullish_points += 1
+
+        elif ema20 < ema50:
+            bearish_points += 1
+
+        if ema200 > 0:
+
+            if ema50 > ema200:
+                bullish_points += 1
+
+            elif ema50 < ema200:
+                bearish_points += 1
+
+        if ema20_slope > 0:
+            bullish_points += 1
+
+        elif ema20_slope < 0:
+            bearish_points += 1
+
+        if ema50_slope > 0:
+            bullish_points += 1
+
+        elif ema50_slope < 0:
+            bearish_points += 1
+
+        if bullish_points >= 4:
+
+            state = "STRONG_BULLISH"
+
+        elif bearish_points >= 4:
+
+            state = "STRONG_BEARISH"
+
+        elif bullish_points > bearish_points:
+
+            state = "BULLISH"
+
+        elif bearish_points > bullish_points:
+
+            state = "BEARISH"
+
+        else:
+
+            state = "NEUTRAL"
+
+        return {
+            "state": state,
+            "bullish_points": bullish_points,
+            "bearish_points": bearish_points,
+        }
+
+    # =====================================================
+    # TECHNICAL CONFIRMATION
+    # =====================================================
+
+    @classmethod
+    def technical_confirmation(
+        cls,
+        *,
+        trend: dict[str, Any],
+        rsi: float,
+        rsi_direction: dict[str, Any],
+        momentum: float,
+        momentum_acceleration: dict[str, Any],
+        volume: dict[str, Any],
+        candle: dict[str, Any],
+        breakout: dict[str, Any],
+    ) -> dict[str, Any]:
+
+        long_score = 0
+        short_score = 0
+
+        long_reasons: list[str] = []
+        short_reasons: list[str] = []
+
+        # -------------------------------------------------
+        # TREND
+        # -------------------------------------------------
+
+        if trend.get(
+            "state"
+        ) in {
+            "BULLISH",
+            "STRONG_BULLISH",
+        }:
+
+            long_score += 2
+            long_reasons.append(
+                "bullish_trend"
+            )
+
+        if trend.get(
+            "state"
+        ) in {
+            "BEARISH",
+            "STRONG_BEARISH",
+        }:
+
+            short_score += 2
+            short_reasons.append(
+                "bearish_trend"
+            )
+
+        # -------------------------------------------------
+        # RSI
+        # -------------------------------------------------
+
+        if (
+            rsi >= cls.RSI_BULLISH
+            and rsi < cls.RSI_OVERBOUGHT
+        ):
+
+            long_score += 1
+            long_reasons.append(
+                "bullish_rsi"
+            )
+
+        if (
+            rsi <= cls.RSI_BEARISH
+            and rsi > cls.RSI_OVERSOLD
+        ):
+
+            short_score += 1
+            short_reasons.append(
+                "bearish_rsi"
+            )
+
+        # -------------------------------------------------
+        # RSI DIRECTION
+        # -------------------------------------------------
+
+        if rsi_direction.get(
+            "rising",
+            False,
+        ):
+
+            long_score += 1
+            long_reasons.append(
+                "rsi_rising"
+            )
+
+        if rsi_direction.get(
+            "falling",
+            False,
+        ):
+
+            short_score += 1
+            short_reasons.append(
+                "rsi_falling"
+            )
+
+        # -------------------------------------------------
+        # MOMENTUM
+        # -------------------------------------------------
+
+        if momentum > 0:
+
+            long_score += 1
+            long_reasons.append(
+                "positive_momentum"
+            )
+
+        elif momentum < 0:
+
+            short_score += 1
+            short_reasons.append(
+                "negative_momentum"
+            )
+
+        # -------------------------------------------------
+        # MOMENTUM ACCELERATION
+        # -------------------------------------------------
+
+        if (
+            momentum_acceleration.get(
+                "state"
+            )
+            == "ACCELERATING_UP"
+        ):
+
+            long_score += 1
+            long_reasons.append(
+                "momentum_acceleration_up"
+            )
+
+        elif (
+            momentum_acceleration.get(
+                "state"
+            )
+            == "ACCELERATING_DOWN"
+        ):
+
+            short_score += 1
+            short_reasons.append(
+                "momentum_acceleration_down"
+            )
+
+        # -------------------------------------------------
+        # VOLUME
+        # -------------------------------------------------
+
+        if volume.get(
+            "confirmation",
+            False,
+        ):
+
+            long_score += 1
+            short_score += 1
+
+            long_reasons.append(
+                "volume_confirmation"
+            )
+
+            short_reasons.append(
+                "volume_confirmation"
+            )
+
+        # -------------------------------------------------
+        # CANDLE
+        # -------------------------------------------------
+
+        if candle.get(
+            "bullish_rejection",
+            False,
+        ):
+
+            long_score += 2
+            long_reasons.append(
+                "bullish_rejection_candle"
+            )
+
+        if candle.get(
+            "bearish_rejection",
+            False,
+        ):
+
+            short_score += 2
+            short_reasons.append(
+                "bearish_rejection_candle"
+            )
+
+        # -------------------------------------------------
+        # BREAKOUT
+        # -------------------------------------------------
+
+        if (
+            breakout.get(
+                "direction"
+            )
+            == "LONG"
+        ):
+
+            long_score += 2
+            long_reasons.append(
+                "bullish_breakout"
+            )
+
+        elif (
+            breakout.get(
+                "direction"
+            )
+            == "SHORT"
+        ):
+
+            short_score += 2
+            short_reasons.append(
+                "bearish_breakout"
+            )
+
+        max_score = 11
+
+        long_percentage = (
+            long_score
+            / max_score
+            * 100.0
+        )
+
+        short_percentage = (
+            short_score
+            / max_score
+            * 100.0
+        )
+
+        if (
+            long_score
+            > short_score
+        ):
+
+            bias = "LONG"
+
+        elif (
+            short_score
+            > long_score
+        ):
+
+            bias = "SHORT"
+
+        else:
+
+            bias = "NEUTRAL"
+
+        return {
+            "bias": bias,
+
+            "long_score": long_score,
+
+            "short_score": short_score,
+
+            "long_percentage": round(
+                long_percentage,
+                2,
+            ),
+
+            "short_percentage": round(
+                short_percentage,
+                2,
+            ),
+
+            "long_reasons": long_reasons,
+
+            "short_reasons": short_reasons,
         }
 
     # =====================================================
@@ -707,43 +1855,119 @@ class IndicatorEngine:
             candles
         )
 
-        opens = parsed["opens"]
-        highs = parsed["highs"]
-        lows = parsed["lows"]
-        closes = parsed["closes"]
-        volumes = parsed["volumes"]
+        opens = parsed[
+            "opens"
+        ]
+
+        highs = parsed[
+            "highs"
+        ]
+
+        lows = parsed[
+            "lows"
+        ]
+
+        closes = parsed[
+            "closes"
+        ]
+
+        volumes = parsed[
+            "volumes"
+        ]
 
         if not closes:
 
             return {
                 "success": False,
                 "candle_count": 0,
-                "error": "No valid candles.",
+                "error": (
+                    "No valid candles."
+                ),
             }
 
-        current_price = closes[-1]
+        current_price = cls._float(
+            closes[-1]
+        )
+
+        # -------------------------------------------------
+        # EMA
+        # -------------------------------------------------
 
         ema20 = cls.ema(
             closes,
-            20,
+            cls.EMA_FAST,
         )
 
         ema50 = cls.ema(
             closes,
-            50,
+            cls.EMA_MEDIUM,
         )
+
+        ema200 = cls.ema(
+            closes,
+            cls.EMA_SLOW,
+        )
+
+        ema20_slope = (
+            cls.ema_slope(
+                closes,
+                cls.EMA_FAST,
+            )
+        )
+
+        ema50_slope = (
+            cls.ema_slope(
+                closes,
+                cls.EMA_MEDIUM,
+            )
+        )
+
+        ema_alignment = (
+            cls.ema_alignment(
+                price=current_price,
+                ema20=ema20,
+                ema50=ema50,
+                ema200=ema200,
+            )
+        )
+
+        # -------------------------------------------------
+        # RSI
+        # -------------------------------------------------
 
         rsi = cls.rsi(
             closes,
-            14,
+            cls.RSI_PERIOD,
         )
+
+        rsi_info = (
+            cls.rsi_direction(
+                closes,
+                cls.RSI_PERIOD,
+            )
+        )
+
+        # -------------------------------------------------
+        # ATR
+        # -------------------------------------------------
 
         atr = cls.atr(
             highs,
             lows,
             closes,
-            14,
+            cls.ATR_PERIOD,
         )
+
+        atr_percent = (
+            cls.atr_percent(
+                atr,
+                current_price,
+            )
+        )
+
+        # -------------------------------------------------
+        # VWAP
+        # -------------------------------------------------
 
         vwap = cls.vwap(
             highs,
@@ -752,83 +1976,266 @@ class IndicatorEngine:
             volumes,
         )
 
-        avg_volume = cls.average_volume(
-            volumes,
-            20,
+        price_vs_vwap = (
+            cls.price_distance(
+                current_price,
+                vwap,
+            )
         )
+
+        price_vs_ema20 = (
+            cls.price_distance(
+                current_price,
+                ema20,
+            )
+        )
+
+        price_vs_ema50 = (
+            cls.price_distance(
+                current_price,
+                ema50,
+            )
+        )
+
+        # -------------------------------------------------
+        # VOLUME
+        # -------------------------------------------------
+
+        volume_info = (
+            cls.volume_analysis(
+                volumes,
+                cls.VOLUME_PERIOD,
+            )
+        )
+
+        # -------------------------------------------------
+        # MOMENTUM
+        # -------------------------------------------------
 
         momentum = cls.momentum(
             closes,
-            5,
+            cls.MOMENTUM_LOOKBACK,
         )
 
-        candle = cls.candle_structure(
-            opens,
-            highs,
-            lows,
-            closes,
+        momentum_info = (
+            cls.momentum_acceleration(
+                closes,
+                cls.MOMENTUM_LOOKBACK,
+            )
         )
+
+        # -------------------------------------------------
+        # CANDLE
+        # -------------------------------------------------
+
+        candle = (
+            cls.candle_structure(
+                opens,
+                highs,
+                lows,
+                closes,
+            )
+        )
+
+        # -------------------------------------------------
+        # RANGE
+        # -------------------------------------------------
 
         recent_range = (
             cls.recent_range(
                 highs,
                 lows,
-                20,
+                closes,
+                cls.RANGE_LOOKBACK,
             )
         )
+
+        # -------------------------------------------------
+        # BREAKOUT
+        # -------------------------------------------------
 
         breakout = cls.breakout(
             highs,
             lows,
             closes,
-            20,
+            cls.BREAKOUT_LOOKBACK,
         )
 
-        atr_percent = (
-            atr
-            / current_price
-            * 100.0
-            if current_price > 0
-            else 0.0
+        # -------------------------------------------------
+        # TREND
+        # -------------------------------------------------
+
+        trend = cls.trend_state(
+            price=current_price,
+            ema20=ema20,
+            ema50=ema50,
+            ema200=ema200,
+            ema20_slope=ema20_slope,
+            ema50_slope=ema50_slope,
         )
 
-        volume_ratio = (
-            volumes[-1]
-            / avg_volume
-            if avg_volume > 0
-            else 0.0
+        # -------------------------------------------------
+        # TECHNICAL CONFIRMATION
+        # -------------------------------------------------
+
+        confirmation = (
+            cls.technical_confirmation(
+                trend=trend,
+                rsi=rsi,
+                rsi_direction=rsi_info,
+                momentum=momentum,
+                momentum_acceleration=momentum_info,
+                volume=volume_info,
+                candle=candle,
+                breakout=breakout,
+            )
         )
+
+        # -------------------------------------------------
+        # Return
+        # -------------------------------------------------
 
         return {
             "success": True,
+
             "candle_count": len(
                 closes
             ),
+
             "price": current_price,
+
+            # -------------------------------------------------
+            # TREND
+            # -------------------------------------------------
+
+            "trend": trend,
+
+            "ema_alignment": (
+                ema_alignment
+            ),
+
             "ema20": ema20,
+
             "ema50": ema50,
+
+            "ema200": ema200,
+
+            "ema20_slope": ema20_slope,
+
+            "ema50_slope": ema50_slope,
+
+            "price_vs_ema20_percent": (
+                price_vs_ema20
+            ),
+
+            "price_vs_ema50_percent": (
+                price_vs_ema50
+            ),
+
+            # -------------------------------------------------
+            # RSI
+            # -------------------------------------------------
+
             "rsi": rsi,
+
+            "rsi_analysis": rsi_info,
+
+            # -------------------------------------------------
+            # VOLATILITY
+            # -------------------------------------------------
+
             "atr": atr,
-            "atr_percent": round(
-                atr_percent,
-                6,
-            ),
+
+            "atr_percent": atr_percent,
+
+            # -------------------------------------------------
+            # VWAP
+            # -------------------------------------------------
+
             "vwap": vwap,
-            "momentum": momentum,
-            "average_volume": avg_volume,
-            "current_volume": volumes[-1],
-            "volume_ratio": round(
-                volume_ratio,
-                6,
+
+            "price_vs_vwap_percent": (
+                price_vs_vwap
             ),
+
+            # -------------------------------------------------
+            # VOLUME
+            # -------------------------------------------------
+
+            "average_volume": (
+                volume_info[
+                    "average"
+                ]
+            ),
+
+            "current_volume": (
+                volume_info[
+                    "current"
+                ]
+            ),
+
+            "volume_ratio": (
+                volume_info[
+                    "ratio"
+                ]
+            ),
+
+            "volume_analysis": (
+                volume_info
+            ),
+
+            # -------------------------------------------------
+            # MOMENTUM
+            # -------------------------------------------------
+
+            "momentum": momentum,
+
+            "momentum_analysis": (
+                momentum_info
+            ),
+
+            # -------------------------------------------------
+            # CANDLE
+            # -------------------------------------------------
+
             "candle_structure": candle,
-            "recent_range": recent_range,
+
+            # -------------------------------------------------
+            # RANGE
+            # -------------------------------------------------
+
+            "recent_range": (
+                recent_range
+            ),
+
+            # -------------------------------------------------
+            # BREAKOUT
+            # -------------------------------------------------
+
             "breakout": breakout,
+
+            # -------------------------------------------------
+            # TECHNICAL CONFIRMATION
+            # -------------------------------------------------
+
+            "technical_confirmation": (
+                confirmation
+            ),
         }
 
 
-indicator_engine = IndicatorEngine()
+# =========================================================
+# SHARED INSTANCE
+# =========================================================
 
+indicator_engine = (
+    IndicatorEngine()
+)
+
+
+# =========================================================
+# EXPORTS
+# =========================================================
 
 __all__ = [
     "IndicatorEngine",
