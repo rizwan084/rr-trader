@@ -59,7 +59,7 @@ class Settings:
     request_timeout: float = float(
         os.getenv(
             "REQUEST_TIMEOUT",
-            "15",
+            "30",
         )
     )
 
@@ -120,14 +120,43 @@ class Settings:
     # AI
     # =====================================================
 
+    # AI is enabled by default; it still requires a valid
+    # OPENAI_API_KEY before the service can make requests.
     ai_enabled: bool = _env_bool(
         "AI_ENABLED",
-        False,
+        True,
     )
 
     openai_api_key: str = os.getenv(
         "OPENAI_API_KEY",
         "",
+    )
+
+    openai_model: str = os.getenv(
+        "OPENAI_MODEL",
+        "gpt-5.6",
+    )
+
+    openai_image_model: str = os.getenv(
+        "OPENAI_IMAGE_MODEL",
+        "gpt-image-2",
+    )
+
+    openai_api_url: str = os.getenv(
+        "OPENAI_API_URL",
+        "https://api.openai.com/v1/responses",
+    )
+
+    openai_image_api_url: str = os.getenv(
+        "OPENAI_IMAGE_API_URL",
+        "https://api.openai.com/v1/images/generations",
+    )
+
+    ai_max_output_tokens: int = int(
+        os.getenv(
+            "AI_MAX_OUTPUT_TOKENS",
+            "2500",
+        )
     )
 
     # =====================================================
