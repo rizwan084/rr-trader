@@ -16,9 +16,9 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt pytest
-      - name: Run tests
+      - name: Validate new pro-risk layer
         env:
           PYTHONPATH: backend
           TRADING_MODE: paper
           LIVE_TRADING_ENABLED: "false"
-        run: pytest -q
+        run: pytest -q tests/test_pro_risk.py
