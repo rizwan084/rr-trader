@@ -26,7 +26,7 @@ def _supabase_key() -> str:
 async def _fetch_results(limit: int) -> list[dict[str, Any]]:
     key = _supabase_key()
     params = {
-        "select": "symbol,decision,confidence,entry_low,entry_high,tp1,tp2,tp3,stop_loss,signal_time,result,pnl_r,updated_at",
+        "select": "symbol,decision,entry_low,entry_high,tp1,tp2,tp3,stop_loss,signal_time,result,pnl_r,updated_at,last_price,mfe_r,mae_r",
         "order": "signal_time.desc",
         "limit": str(limit),
     }
@@ -90,7 +90,6 @@ async def dashboard_accountability(limit: int = Query(2000, ge=1, le=5000)) -> d
     losses = [r for r in records if _result_type(r.get("result")) == "SL"]
     opens = [r for r in records if _result_type(r.get("result")) == "OPEN"]
     closed = len(wins) + len(losses)
-    confidences = [_number(r.get("confidence")) for r in records if r.get("confidence") is not None]
     pnl_r = sum(_number(r.get("pnl_r")) for r in records)
     longs = sum(1 for r in records if str(r.get("decision", "")).upper() == "LONG")
     shorts = sum(1 for r in records if str(r.get("decision", "")).upper() == "SHORT")
@@ -105,7 +104,7 @@ async def dashboard_accountability(limit: int = Query(2000, ge=1, le=5000)) -> d
             "open": len(opens), "closed": closed,
             "win_rate": round((len(wins) / closed * 100.0) if closed else 0.0, 2),
             "net_r": round(pnl_r, 4),
-            "avg_confidence": round(sum(confidences) / len(confidences), 2) if confidences else None,
+            "avg_confidence": None,
             "long": longs, "short": shorts, "tp_sl_ratio": f"{len(wins)} / {len(losses)}",
             "best_r": round(max((_number(r.get("pnl_r")) for r in wins), default=0.0), 4),
         },
