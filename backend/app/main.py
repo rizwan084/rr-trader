@@ -31,6 +31,7 @@ CHARTS_DIR = FRONTEND_DIR / "charts"
 COMPONENTS_DIR = FRONTEND_DIR / "components"
 ASSETS_DIR = FRONTEND_DIR / "assets"
 BITGURU_DIR = PROJECT_ROOT / "dashboard"
+BITGURU_INDEX = BITGURU_DIR / "index.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
 APP_VERSION = "4.0.1"
@@ -41,23 +42,12 @@ def get_ai_status() -> dict[str, Any]:
         result = ai_service.status()
         if not isinstance(result, dict):
             result = {}
-        result["configured"] = bool(
-            str(getattr(settings, "openai_api_key", "") or "").strip()
-        )
+        result["configured"] = bool(str(getattr(settings, "openai_api_key", "") or "").strip())
         result["enabled"] = bool(getattr(settings, "ai_enabled", True))
-        result["status"] = (
-            "ONLINE"
-            if result["enabled"] and result["configured"]
-            else "NOT_CONFIGURED"
-        )
+        result["status"] = "ONLINE" if result["enabled"] and result["configured"] else "NOT_CONFIGURED"
         return result
     except Exception as exc:
-        return {
-            "enabled": False,
-            "configured": False,
-            "status": "ERROR",
-            "error": str(exc),
-        }
+        return {"enabled": False, "configured": False, "status": "ERROR", "error": str(exc)}
 
 
 @asynccontextmanager
@@ -104,12 +94,6 @@ for path, url, name, html in [
     if path.is_dir():
         app.mount(url, StaticFiles(directory=str(path), html=html), name=name)
 
-# Standalone BitGuru Accountability PWA. This is intentionally separate from
-# the RR Trader dashboard so it can be added to the iPhone Home Screen as its
-# own app while reading the same Supabase result data.
-if BITGURU_DIR.is_dir():
-    app.mount("/bitguru", StaticFiles(directory=str(BITGURU_DIR), html=True), name="bitguru")
-
 
 @app.get("/", tags=["System"])
 async def root():
@@ -123,6 +107,33 @@ async def dashboard():
     if FRONTEND_INDEX.is_file():
         return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     return {"success": False, "error": "Dashboard frontend not found."}
+
+
+# BitGuru is a standalone accountability dashboard. Serve the HTML explicitly
+# instead of relying on a mounted directory so /bitguru and /bitguru/ both work
+# reliably on Render and other ASGI hosts.
+@app.get("/bitguru", tags=["BitGuru"])
+@app.get("/bitguru/", tags=["BitGuru"])
+async def bitguru_dashboard():
+    if BITGURU_INDEX.is_file():
+        return FileResponse(str(BITGURU_INDEX), media_type="text/html")
+    return {"success": False, "error": "BitGuru dashboard frontend not found."}
+
+
+@app.get("/bitguru/manifest.json", tags=["BitGuru"])
+async def bitguru_manifest():
+    path = BITGURU_DIR / "manifest.json"
+    if path.is_file():
+        return FileResponse(str(path), media_type="application/manifest+json")
+    return {"success": False, "error": "BitGuru manifest not found."}
+
+
+@app.get("/bitguru/icon.svg", tags=["BitGuru"])
+async def bitguru_icon():
+    path = BITGURU_DIR / "icon.svg"
+    if path.is_file():
+        return FileResponse(str(path), media_type="image/svg+xml")
+    return {"success": False, "error": "BitGuru icon not found."}
 
 
 @app.get("/health", tags=["System"])
@@ -141,11 +152,7 @@ async def health():
         "ai": ai_state,
         "forex": forex_engine.status(),
         "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"},
-        "market_data": {
-            "primary": "Binance",
-            "fallback": "Bitget Futures",
-            "resilience_enabled": True,
-        },
+        "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True},
         "endpoints": {
             "dashboard": "/dashboard",
             "bitguru": "/bitguru/",
@@ -157,6 +164,7 @@ async def health():
             "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD",
         },
     }
+
 
 app.include_router(main_router, prefix="/api", tags=["Markets"])
 app.include_router(trade_router, prefix="/api", tags=["Trade Engine"])
@@ -188,7 +196,7 @@ async def ready():
             "liquidation": True,
             "market_data_fallback": True,
             "dashboard": FRONTEND_INDEX.is_file(),
-            "bitguru_dashboard": BITGURU_DIR.is_dir(),
+            "bitguru_dashboard": BITGURU_INDEX.is_file(),
         },
     }
 
