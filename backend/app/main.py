@@ -12,12 +12,12 @@ from app.api.routes import router as main_router
 from app.api.trade_routes import router as trade_router
 from app.api.ai_routes import router as ai_router
 from app.api.dashboard_routes import router as dashboard_router
+from app.api.accountability_routes import router as accountability_router
 from app.api.scanner_routes import router as scanner_router
 from app.api.liquidation_routes import router as liquidation_router
 from app.api.forex_routes import router as forex_router
 from app.core.config import settings
 from app.core.market_resilience import install_market_data_resilience
-
 from app.services.auto_scanner import auto_scanner
 from app.services.ai import ai_service
 from app.services.forex_engine import forex_engine
@@ -32,9 +32,10 @@ COMPONENTS_DIR = FRONTEND_DIR / "components"
 ASSETS_DIR = FRONTEND_DIR / "assets"
 BITGURU_DIR = PROJECT_ROOT / "dashboard"
 BITGURU_INDEX = BITGURU_DIR / "index.html"
+BITGURU_ACCOUNTABILITY_INDEX = BITGURU_DIR / "accountability.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
-APP_VERSION = "4.0.1"
+APP_VERSION = "4.0.2"
 
 
 def get_ai_status() -> dict[str, Any]:
@@ -77,12 +78,7 @@ async def lifespan(app: FastAPI):
             print("AI shutdown warning:", exc)
 
 
-app = FastAPI(
-    title=APP_NAME,
-    description="Professional crypto, Forex and Gold trading intelligence platform.",
-    version=APP_VERSION,
-    lifespan=lifespan,
-)
+app = FastAPI(title=APP_NAME, description="Professional crypto, Forex and Gold trading intelligence platform.", version=APP_VERSION, lifespan=lifespan)
 
 for path, url, name, html in [
     (PAGES_DIR, "/pages", "pages", True),
@@ -109,14 +105,12 @@ async def dashboard():
     return {"success": False, "error": "Dashboard frontend not found."}
 
 
-# BitGuru is a standalone accountability dashboard. Serve the HTML explicitly
-# instead of relying on a mounted directory so /bitguru and /bitguru/ both work
-# reliably on Render and other ASGI hosts.
 @app.get("/bitguru", tags=["BitGuru"])
 @app.get("/bitguru/", tags=["BitGuru"])
 async def bitguru_dashboard():
-    if BITGURU_INDEX.is_file():
-        return FileResponse(str(BITGURU_INDEX), media_type="text/html")
+    path = BITGURU_ACCOUNTABILITY_INDEX if BITGURU_ACCOUNTABILITY_INDEX.is_file() else BITGURU_INDEX
+    if path.is_file():
+        return FileResponse(str(path), media_type="text/html")
     return {"success": False, "error": "BitGuru dashboard frontend not found."}
 
 
@@ -144,31 +138,18 @@ async def health():
         scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
     ai_state = get_ai_status()
     return {
-        "success": True,
-        "app": "RR Trader",
-        "status": "healthy",
-        "version": APP_VERSION,
-        "scanner": scanner_state,
-        "ai": ai_state,
-        "forex": forex_engine.status(),
+        "success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION,
+        "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(),
         "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"},
         "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True},
-        "endpoints": {
-            "dashboard": "/dashboard",
-            "bitguru": "/bitguru/",
-            "ai_chat": "/api/ai/chat",
-            "scanner": "/api",
-            "liquidation": "/api/liquidation/status",
-            "forex_status": "/api/forex/status",
-            "forex_watchlist": "/api/forex/watchlist",
-            "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD",
-        },
+        "endpoints": {"dashboard": "/dashboard", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"},
     }
 
 
 app.include_router(main_router, prefix="/api", tags=["Markets"])
 app.include_router(trade_router, prefix="/api", tags=["Trade Engine"])
 app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
+app.include_router(accountability_router, prefix="/api", tags=["BitGuru Accountability"])
 app.include_router(scanner_router, prefix="/api", tags=["Scanner"])
 app.include_router(liquidation_router, prefix="/api", tags=["Liquidation Intelligence"])
 app.include_router(forex_router)
@@ -184,19 +165,13 @@ async def ready():
         scanner_state = {"running": False}
     forex_state = forex_engine.status()
     return {
-        "success": True,
-        "ready": True,
-        "app": "RR Trader",
-        "version": APP_VERSION,
+        "success": True, "ready": True, "app": "RR Trader", "version": APP_VERSION,
         "services": {
             "scanner": bool(scanner_state.get("running", False)),
             "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)),
-            "forex_mt5": bool(forex_state.get("configured", False)),
-            "gold_xauusd": True,
-            "liquidation": True,
-            "market_data_fallback": True,
-            "dashboard": FRONTEND_INDEX.is_file(),
-            "bitguru_dashboard": BITGURU_INDEX.is_file(),
+            "forex_mt5": bool(forex_state.get("configured", False)), "gold_xauusd": True,
+            "liquidation": True, "market_data_fallback": True,
+            "dashboard": FRONTEND_INDEX.is_file(), "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file(),
         },
     }
 
