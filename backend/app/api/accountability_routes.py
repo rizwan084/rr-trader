@@ -9,20 +9,22 @@ from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://orarigjdzfrdsehcnkdb.supabase.co").strip().rstrip("/")
+SUPABASE_PUBLIC_KEY = "sb_publishable_rX5JrbNbnN6r91RsP_G7gw_vV9T2vwU"
 
 
 def _supabase_key() -> str:
     return (
         os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
         or os.getenv("SUPABASE_SECRET_KEY", "").strip()
+        or os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+        or os.getenv("SUPABASE_ANON_KEY", "").strip()
         or os.getenv("SUPABASE_KEY", "").strip()
+        or SUPABASE_PUBLIC_KEY
     )
 
 
 async def _fetch_results(limit: int) -> list[dict[str, Any]]:
     key = _supabase_key()
-    if not key:
-        raise HTTPException(status_code=503, detail="Supabase server key is not configured. Set SUPABASE_SERVICE_ROLE_KEY in Render.")
     params = {
         "select": "symbol,decision,confidence,entry_low,entry_high,tp1,tp2,tp3,stop_loss,signal_time,result,pnl_r,updated_at",
         "order": "signal_time.desc",
