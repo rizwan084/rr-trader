@@ -5,6 +5,8 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.auto_scanner import auto_scanner
+from app.services.execution_repository import execution_repository
+from app.services.trade_lifecycle import trade_lifecycle_service
 from app.services.trade_orchestrator import trade_orchestrator
 
 
@@ -20,6 +22,7 @@ class AutoExecutionLoop:
         self._running = False
         self.interval = max(10, int(settings.auto_scan_interval))
         self.last_result: dict[str, Any] = {"status": "IDLE"}
+        self.last_reconciliation: dict[str, Any] = {"status": "IDLE"}
 
     async def _run_once(self) -> None:
         if not (settings.live_trading_enabled and settings.trading_mode == "live"):
@@ -29,6 +32,8 @@ class AutoExecutionLoop:
             }
             return
 
+        self.last_reconciliation = await trade_lifecycle_service.reconcile_once()
+
         snapshot = auto_scanner.snapshot()
         if not isinstance(snapshot, dict) or not snapshot.get("success", False):
             self.last_result = {"status": "NO_SCAN_DATA"}
@@ -36,18 +41,26 @@ class AutoExecutionLoop:
 
         candidates = snapshot.get("publishable_signals") or []
         if not isinstance(candidates, list) or not candidates:
-            self.last_result = {"status": "NO_APPROVED_SIGNAL"}
+            self.last_result = {"status": "NO_APPROVED_SIGNAL", "reconciliation": self.last_reconciliation}
             return
 
         # The scanner already ranks publishable candidates. The orchestrator
         # applies the second, stricter pro-risk gate before any order is sent.
         best = candidates[0]
         if not isinstance(best, dict):
-            self.last_result = {"status": "INVALID_SIGNAL"}
+            self.last_result = {"status": "INVALID_SIGNAL", "reconciliation": self.last_reconciliation}
             return
 
         result = await trade_orchestrator.execute(best)
         self.last_result = result
+
+        # Persist only successful live executions. This table is isolated from
+        # the existing accountability table so the current dashboard remains untouched.
+        if result.get("success") and result.get("mode") == "live" and result.get("status") == "OPEN":
+            try:
+                await execution_repository.create_open_trade(best, result)
+            except Exception as exc:
+                self.last_result["persistence_warning"] = str(exc)
 
     async def _loop(self) -> None:
         while self._running:
@@ -81,7 +94,9 @@ class AutoExecutionLoop:
             "running": self._running,
             "interval_seconds": self.interval,
             "last_result": self.last_result,
+            "last_reconciliation": self.last_reconciliation,
             "live_enabled": settings.live_trading_enabled and settings.trading_mode == "live",
+            "persistence_configured": execution_repository.configured,
         }
 
 
