@@ -18,6 +18,7 @@ jobs:
         run: pip install -r requirements.txt pytest
       - name: Run tests
         env:
+          PYTHONPATH: backend
           TRADING_MODE: paper
           LIVE_TRADING_ENABLED: "false"
         run: pytest -q
