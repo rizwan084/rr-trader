@@ -3,9 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Query
+import httpx
+from fastapi import APIRouter, HTTPException, Query
 
 from app.api.accountability_routes import _fetch_results, _number, _result_type
+from app.api.routes import build_24_point_result, build_trade_levels, normalize_market, normalize_symbol
+from app.core.config import settings
+from app.services.challenge_post_generator import challenge_post_generator
+from app.services.master_analysis import master_analysis_engine
 
 router = APIRouter()
 
@@ -150,6 +155,115 @@ async def challenge_overview(
             "supabase": "No schema mutation is performed by this endpoint; it reads the existing accountability result data only.",
         },
     }
+
+
+async def _analyze_challenge_symbol(symbol: str, market: str) -> dict[str, Any]:
+    clean_symbol = normalize_symbol(symbol)
+    clean_market = normalize_market(market)
+    analysis = await master_analysis_engine.analyze(
+        symbol=clean_symbol,
+        market=clean_market,
+        candle_limit=200,
+    )
+    levels = build_trade_levels(analysis)
+    points = build_24_point_result(analysis, levels)
+    direction = str(analysis.get("direction") or "NEUTRAL").upper()
+    confidence = _number(analysis.get("confidence"))
+    failures: list[str] = []
+    if not analysis.get("multi_timeframe", {}).get("publishable_mtf", False):
+        failures.append("MTF_NOT_ALIGNED")
+    if levels.get("stop_quality") != "VALID":
+        failures.append("INVALID_STOP")
+    if _number(levels.get("risk_reward")) < settings.pro_min_risk_reward:
+        failures.append("LOW_RISK_REWARD")
+    if confidence < settings.pro_min_confidence:
+        failures.append("LOW_CONFIDENCE")
+    if direction not in {"LONG", "SHORT"}:
+        failures.append("NO_DIRECTION")
+    result = {
+        **analysis,
+        "symbol": clean_symbol,
+        "entry": levels.get("entry"),
+        "stop_loss": levels.get("stop_loss"),
+        "tp1": levels.get("tp1"),
+        "tp2": levels.get("tp2"),
+        "tp3": levels.get("tp3"),
+        "risk_reward": levels.get("risk_reward"),
+        "stop_quality": levels.get("stop_quality"),
+        "publishable": not failures,
+        "critical_failures": failures,
+        "24_point_analysis": points,
+        "challenge_policy": {
+            "min_confidence": settings.pro_min_confidence,
+            "min_risk_reward": settings.pro_min_risk_reward,
+            "risk_per_trade_percent": settings.pro_risk_per_trade_percent,
+            "max_open_positions": settings.pro_max_open_positions,
+            "max_daily_loss_percent": settings.pro_max_daily_loss_percent,
+            "max_consecutive_losses": settings.pro_max_consecutive_losses,
+        },
+    }
+    return result
+
+
+@router.get("/challenge/post/preview")
+async def challenge_post_preview(
+    symbol: str,
+    market: str = Query("futures"),
+) -> dict[str, Any]:
+    try:
+        analysis = await _analyze_challenge_symbol(symbol, market)
+        overview = await challenge_overview(limit=2000)
+        if not analysis.get("publishable"):
+            return {
+                "success": True,
+                "mode": "challenge",
+                "publishable": False,
+                "analysis": analysis,
+                "blocked_by": analysis.get("critical_failures", []),
+                "message": "No challenge post generated because the professional challenge gates failed.",
+            }
+        post = challenge_post_generator.build(analysis, balance=overview["challenge"]["balance"])
+        return {"success": True, "mode": "challenge", "publishable": True, "analysis": analysis, "post": post}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Challenge post preview failed: {exc}") from exc
+
+
+@router.post("/challenge/post/publish")
+async def challenge_post_publish(
+    symbol: str,
+    market: str = Query("futures"),
+    force: bool = Query(False),
+) -> dict[str, Any]:
+    if not settings.challenge_enabled:
+        raise HTTPException(status_code=409, detail="Challenge mode is disabled.")
+    if not settings.auto_trade_posts_enabled or not settings.trade_post_webhook_url:
+        raise HTTPException(status_code=409, detail="Challenge publisher is not configured. Set AUTO_TRADE_POSTS_ENABLED=true and TRADE_POST_WEBHOOK_URL on the server.")
+
+    preview = await challenge_post_preview(symbol=symbol, market=market)
+    if not preview.get("publishable") and not force:
+        raise HTTPException(status_code=409, detail={"message": "Challenge signal failed professional gates.", "blocked_by": preview.get("blocked_by", [])})
+
+    payload = {
+        "mode": "challenge",
+        "challenge": "$50_to_$1000",
+        "source": "RR Trader",
+        "post": preview.get("post", {}).get("post", ""),
+        "signal": preview.get("analysis", {}),
+        "published_at": datetime.now(timezone.utc).isoformat(),
+    }
+    headers = {"Content-Type": "application/json"}
+    if settings.trade_post_webhook_token:
+        headers["Authorization"] = f"Bearer {settings.trade_post_webhook_token}"
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(settings.trade_post_webhook_url, json=payload, headers=headers)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Challenge publisher connection failed: {type(exc).__name__}") from exc
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Challenge publisher rejected the post with HTTP {response.status_code}.")
+    return {"success": True, "mode": "challenge", "publisher_status": response.status_code, "preview": preview}
 
 
 __all__ = ["router"]
