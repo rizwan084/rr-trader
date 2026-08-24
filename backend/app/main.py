@@ -13,6 +13,7 @@ from app.api.trade_routes import router as trade_router
 from app.api.ai_routes import router as ai_router
 from app.api.dashboard_routes import router as dashboard_router
 from app.api.accountability_routes import router as accountability_router
+from app.api.challenge_routes import router as challenge_router
 from app.api.scanner_routes import router as scanner_router
 from app.api.liquidation_routes import router as liquidation_router
 from app.api.forex_routes import router as forex_router
@@ -36,6 +37,7 @@ ASSETS_DIR = FRONTEND_DIR / "assets"
 BITGURU_DIR = PROJECT_ROOT / "dashboard"
 BITGURU_INDEX = BITGURU_DIR / "index.html"
 BITGURU_ACCOUNTABILITY_INDEX = BITGURU_DIR / "accountability.html"
+CHALLENGE_INDEX = FRONTEND_DIR / "challenge.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
 APP_VERSION = "4.1.0-pro-risk"
@@ -117,6 +119,14 @@ async def dashboard():
     return {"success": False, "error": "Dashboard frontend not found."}
 
 
+@app.get("/challenge", tags=["Challenge"])
+@app.get("/challenge/", tags=["Challenge"])
+async def challenge_dashboard():
+    if CHALLENGE_INDEX.is_file():
+        return FileResponse(str(CHALLENGE_INDEX), media_type="text/html")
+    return {"success": False, "error": "Challenge dashboard frontend not found."}
+
+
 @app.get("/bitguru", tags=["BitGuru"])
 @app.get("/bitguru/", tags=["BitGuru"])
 async def bitguru_dashboard():
@@ -163,6 +173,8 @@ async def health():
         "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True},
         "endpoints": {
             "dashboard": "/dashboard",
+            "challenge": "/challenge",
+            "challenge_api": "/api/challenge/overview",
             "bitguru": "/bitguru/",
             "bitguru_accountability": "/api/dashboard/accountability",
             "ai_chat": "/api/ai/chat",
@@ -182,6 +194,7 @@ app.include_router(main_router, prefix="/api", tags=["Markets"])
 app.include_router(trade_router, prefix="/api", tags=["Trade Engine"])
 app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(accountability_router, prefix="/api", tags=["BitGuru Accountability"])
+app.include_router(challenge_router, prefix="/api", tags=["Challenge"])
 app.include_router(scanner_router, prefix="/api", tags=["Scanner"])
 app.include_router(liquidation_router, prefix="/api", tags=["Liquidation Intelligence"])
 app.include_router(live_trading_router, prefix="/api", tags=["Live Trading"])
@@ -213,6 +226,7 @@ async def ready():
             "live_trading": bool(settings.live_trading_enabled and settings.trading_mode == "live"),
             "pro_risk_gate": settings.require_pro_risk_gate,
             "dashboard": FRONTEND_INDEX.is_file(),
+            "challenge_dashboard": CHALLENGE_INDEX.is_file(),
             "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file(),
         },
     }
