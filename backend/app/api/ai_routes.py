@@ -56,13 +56,14 @@ async def ai_status() -> Dict[str, Any]:
 @router.post("/chat")
 async def ai_chat(request: AIChatRequest) -> Dict[str, Any]:
     try:
-        result = await ai_service.ask(
-            request.message,
+        # AIEngine.chat uses session_id. The previous route passed
+        # conversation_id/use_web/allow_image/image_size into ask(),
+        # which forwarded unsupported kwargs and caused every chat
+        # request to fail before reaching OpenAI.
+        result = await ai_service.chat(
+            user_request=request.message,
             context=request.context,
-            conversation_id=request.conversation_id,
-            use_web=request.use_web,
-            allow_image=request.allow_image,
-            image_size=request.image_size,
+            session_id=request.conversation_id,
         )
         if not isinstance(result, dict):
             return {
