@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.config import settings
+
 
 @dataclass(frozen=True)
 class ProRiskDecision:
@@ -31,12 +33,7 @@ class ProRiskDecision:
 
 
 class ProRiskEngine:
-    """Final quality gate used before a signal can become a trade.
-
-    The goal is not to predict every winner. The goal is to reject weak,
-    late, badly located and poorly protected setups before execution.
-    Open trades never count as wins; only closed outcomes do.
-    """
+    """Final quality gate used before a signal can become a trade."""
 
     def __init__(
         self,
@@ -108,18 +105,11 @@ class ProRiskEngine:
         if consecutive_losses >= self.max_consecutive_losses:
             failures.append("LOSS_STREAK_COOLDOWN")
 
-        # RR Trader's existing analysis stores entry-location confirmation as
-        # nested dictionaries. Flatten those fields here instead of requiring
-        # changes to the existing scanner/analysis engine.
         setup_obj = signal.get("setup")
         if isinstance(setup_obj, dict):
             setup = self._s(setup_obj.get("setup"))
         else:
             setup = self._s(setup_obj or signal.get("setup_type"))
-
-        entry_location = signal.get("entry_location")
-        if not isinstance(entry_location, dict):
-            entry_location = {}
 
         structure = signal.get("structure")
         if not isinstance(structure, dict):
@@ -128,13 +118,8 @@ class ProRiskEngine:
         if not isinstance(sr, dict):
             sr = {}
 
-        location = self._s(
-            signal.get("structure_location")
-            or signal.get("location")
-            or sr.get("location")
-        )
+        location = self._s(signal.get("structure_location") or signal.get("location") or sr.get("location"))
 
-        # MTF engine output can be nested in multi_timeframe / mtf.
         mtf_obj = signal.get("multi_timeframe") or signal.get("mtf")
         if isinstance(mtf_obj, dict):
             mtf_confirmed = bool(mtf_obj.get("publishable_mtf", False))
@@ -158,8 +143,6 @@ class ProRiskEngine:
         if momentum < 45:
             warnings.append("WEAK_MOMENTUM")
 
-        # A deterministic score is used for observability, not as a substitute
-        # for the hard gates above.
         score = 0.0
         score += min(confidence, 100.0) * 0.45
         score += min(max(rr / max(self.min_rr, 0.01), 0.0), 1.5) * 20.0
@@ -167,10 +150,8 @@ class ProRiskEngine:
         score += min(max(momentum, 0.0), 100.0) * 0.20
         score = min(score, 100.0)
 
-        position_size = 0.0
         risk_amount = max(account_balance, 0.0) * risk_pct / 100.0
-        if entry > 0 and stop > 0 and abs(entry - stop) > 0:
-            position_size = risk_amount / abs(entry - stop)
+        position_size = risk_amount / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0.0
 
         allowed = not failures
         return ProRiskDecision(
@@ -197,4 +178,11 @@ class ProRiskEngine:
         }
 
 
-pro_risk_engine = ProRiskEngine()
+pro_risk_engine = ProRiskEngine(
+    min_confidence=settings.pro_min_confidence,
+    min_rr=settings.pro_min_risk_reward,
+    max_risk_percent=settings.pro_risk_per_trade_percent,
+    max_open_positions=settings.pro_max_open_positions,
+    max_daily_loss_percent=settings.pro_max_daily_loss_percent,
+    max_consecutive_losses=settings.pro_max_consecutive_losses,
+)
