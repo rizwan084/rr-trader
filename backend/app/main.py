@@ -30,6 +30,7 @@ SERVICES_DIR = FRONTEND_DIR / "services"
 CHARTS_DIR = FRONTEND_DIR / "charts"
 COMPONENTS_DIR = FRONTEND_DIR / "components"
 ASSETS_DIR = FRONTEND_DIR / "assets"
+BITGURU_DIR = PROJECT_ROOT / "dashboard"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
 APP_VERSION = "4.0.1"
@@ -103,6 +104,12 @@ for path, url, name, html in [
     if path.is_dir():
         app.mount(url, StaticFiles(directory=str(path), html=html), name=name)
 
+# Standalone BitGuru Accountability PWA. This is intentionally separate from
+# the RR Trader dashboard so it can be added to the iPhone Home Screen as its
+# own app while reading the same Supabase result data.
+if BITGURU_DIR.is_dir():
+    app.mount("/bitguru", StaticFiles(directory=str(BITGURU_DIR), html=True), name="bitguru")
+
 
 @app.get("/", tags=["System"])
 async def root():
@@ -141,6 +148,7 @@ async def health():
         },
         "endpoints": {
             "dashboard": "/dashboard",
+            "bitguru": "/bitguru/",
             "ai_chat": "/api/ai/chat",
             "scanner": "/api",
             "liquidation": "/api/liquidation/status",
@@ -180,6 +188,7 @@ async def ready():
             "liquidation": True,
             "market_data_fallback": True,
             "dashboard": FRONTEND_INDEX.is_file(),
+            "bitguru_dashboard": BITGURU_DIR.is_dir(),
         },
     }
 
