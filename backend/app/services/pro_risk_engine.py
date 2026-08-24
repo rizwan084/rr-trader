@@ -79,7 +79,7 @@ class ProRiskEngine:
         failures: list[str] = []
         warnings: list[str] = []
 
-        side = self._s(signal.get("decision") or signal.get("side"))
+        side = self._s(signal.get("direction") or signal.get("decision") or signal.get("side"))
         entry = self._f(signal.get("entry") or signal.get("entry_price"))
         stop = self._f(signal.get("stop_loss") or signal.get("sl"))
         confidence = self._f(signal.get("confidence"))
@@ -108,19 +108,50 @@ class ProRiskEngine:
         if consecutive_losses >= self.max_consecutive_losses:
             failures.append("LOSS_STREAK_COOLDOWN")
 
-        # These fields are intentionally optional so the old analysis engine
-        # keeps working while the new gate becomes progressively stricter.
-        setup = self._s(signal.get("setup") or signal.get("setup_type"))
-        location = self._s(signal.get("structure_location") or signal.get("location"))
-        mtf = signal.get("mtf_confirmation", signal.get("mtf_confirmed"))
-        volume_ratio = self._f(signal.get("volume_ratio"), 1.0)
-        momentum = self._f(signal.get("momentum_score"), 50.0)
+        # RR Trader's existing analysis stores entry-location confirmation as
+        # nested dictionaries. Flatten those fields here instead of requiring
+        # changes to the existing scanner/analysis engine.
+        setup_obj = signal.get("setup")
+        if isinstance(setup_obj, dict):
+            setup = self._s(setup_obj.get("setup"))
+        else:
+            setup = self._s(setup_obj or signal.get("setup_type"))
 
-        if setup in {"NONE", "RANGE_COMPRESSION", "MID_RANGE"}:
+        entry_location = signal.get("entry_location")
+        if not isinstance(entry_location, dict):
+            entry_location = {}
+
+        structure = signal.get("structure")
+        if not isinstance(structure, dict):
+            structure = {}
+        sr = structure.get("support_resistance")
+        if not isinstance(sr, dict):
+            sr = {}
+
+        location = self._s(
+            signal.get("structure_location")
+            or signal.get("location")
+            or sr.get("location")
+        )
+
+        # MTF engine output can be nested in multi_timeframe / mtf.
+        mtf_obj = signal.get("multi_timeframe") or signal.get("mtf")
+        if isinstance(mtf_obj, dict):
+            mtf_confirmed = bool(mtf_obj.get("publishable_mtf", False))
+        else:
+            mtf_confirmed = signal.get("mtf_confirmation", signal.get("mtf_confirmed"))
+
+        indicators = signal.get("indicators")
+        if not isinstance(indicators, dict):
+            indicators = {}
+        volume_ratio = self._f(signal.get("volume_ratio"), self._f(indicators.get("volume_ratio"), 1.0))
+        momentum = self._f(signal.get("momentum_score"), self._f(indicators.get("momentum"), 50.0))
+
+        if setup in {"NONE", "RANGE_COMPRESSION", "MID_RANGE", ""}:
             failures.append("BAD_TRADE_LOCATION")
         if location in {"MID_RANGE", "UNKNOWN", ""}:
             warnings.append("STRUCTURE_LOCATION_NOT_EXPLICITLY_CONFIRMED")
-        if mtf is False:
+        if mtf_confirmed is False:
             failures.append("MTF_CONFLICT")
         if volume_ratio < 0.8:
             failures.append("WEAK_VOLUME")
