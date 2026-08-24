@@ -16,11 +16,13 @@ from app.api.accountability_routes import router as accountability_router
 from app.api.scanner_routes import router as scanner_router
 from app.api.liquidation_routes import router as liquidation_router
 from app.api.forex_routes import router as forex_router
+from app.api.live_trading_routes import router as live_trading_router
 from app.core.config import settings
 from app.core.market_resilience import install_market_data_resilience
 from app.services.auto_scanner import auto_scanner
 from app.services.ai import ai_service
 from app.services.forex_engine import forex_engine
+from app.services.trade_orchestrator import trade_orchestrator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -35,7 +37,7 @@ BITGURU_INDEX = BITGURU_DIR / "index.html"
 BITGURU_ACCOUNTABILITY_INDEX = BITGURU_DIR / "accountability.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
-APP_VERSION = "4.0.2"
+APP_VERSION = "4.1.0-pro-risk"
 
 
 def get_ai_status() -> dict[str, Any]:
@@ -55,6 +57,7 @@ def get_ai_status() -> dict[str, Any]:
 async def lifespan(app: FastAPI):
     print("RR TRADER STARTING")
     print(f"Version: {APP_VERSION}")
+    print(f"Trading mode: {settings.trading_mode} | Live enabled: {settings.live_trading_enabled}")
     install_market_data_resilience()
     print("AI status:", get_ai_status())
     print("Forex/Gold status:", forex_engine.status())
@@ -138,11 +141,30 @@ async def health():
         scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
     ai_state = get_ai_status()
     return {
-        "success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION,
-        "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(),
+        "success": True,
+        "app": "RR Trader",
+        "status": "healthy",
+        "version": APP_VERSION,
+        "scanner": scanner_state,
+        "ai": ai_state,
+        "forex": forex_engine.status(),
+        "trading": await trade_orchestrator.account_status(),
         "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"},
         "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True},
-        "endpoints": {"dashboard": "/dashboard", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"},
+        "endpoints": {
+            "dashboard": "/dashboard",
+            "bitguru": "/bitguru/",
+            "bitguru_accountability": "/api/dashboard/accountability",
+            "ai_chat": "/api/ai/chat",
+            "scanner": "/api",
+            "liquidation": "/api/liquidation/status",
+            "forex_status": "/api/forex/status",
+            "forex_watchlist": "/api/forex/watchlist",
+            "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD",
+            "live_status": "/api/live/status",
+            "live_preview": "/api/live/preview",
+            "live_execute": "/api/live/execute",
+        },
     }
 
 
@@ -152,6 +174,7 @@ app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(accountability_router, prefix="/api", tags=["BitGuru Accountability"])
 app.include_router(scanner_router, prefix="/api", tags=["Scanner"])
 app.include_router(liquidation_router, prefix="/api", tags=["Liquidation Intelligence"])
+app.include_router(live_trading_router, prefix="/api", tags=["Live Trading"])
 app.include_router(forex_router)
 app.include_router(ai_router)
 
@@ -165,13 +188,21 @@ async def ready():
         scanner_state = {"running": False}
     forex_state = forex_engine.status()
     return {
-        "success": True, "ready": True, "app": "RR Trader", "version": APP_VERSION,
+        "success": True,
+        "ready": True,
+        "app": "RR Trader",
+        "version": APP_VERSION,
         "services": {
             "scanner": bool(scanner_state.get("running", False)),
             "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)),
-            "forex_mt5": bool(forex_state.get("configured", False)), "gold_xauusd": True,
-            "liquidation": True, "market_data_fallback": True,
-            "dashboard": FRONTEND_INDEX.is_file(), "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file(),
+            "forex_mt5": bool(forex_state.get("configured", False)),
+            "gold_xauusd": True,
+            "liquidation": True,
+            "market_data_fallback": True,
+            "live_trading": bool(settings.live_trading_enabled and settings.trading_mode == "live"),
+            "pro_risk_gate": settings.require_pro_risk_gate,
+            "dashboard": FRONTEND_INDEX.is_file(),
+            "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file(),
         },
     }
 
