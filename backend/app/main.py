@@ -20,6 +20,7 @@ from app.api.live_trading_routes import router as live_trading_router
 from app.core.config import settings
 from app.core.market_resilience import install_market_data_resilience
 from app.services.auto_scanner import auto_scanner
+from app.services.auto_execution_loop import auto_execution_loop
 from app.services.ai import ai_service
 from app.services.forex_engine import forex_engine
 from app.services.trade_orchestrator import trade_orchestrator
@@ -66,7 +67,15 @@ async def lifespan(app: FastAPI):
         await auto_scanner.start()
     except Exception as exc:
         print("Scanner startup warning:", exc)
+    try:
+        await auto_execution_loop.start()
+    except Exception as exc:
+        print("Auto-execution startup warning:", exc)
     yield
+    try:
+        await auto_execution_loop.stop()
+    except Exception as exc:
+        print("Auto-execution shutdown warning:", exc)
     try:
         await auto_scanner.stop()
     except Exception as exc:
@@ -146,6 +155,7 @@ async def health():
         "status": "healthy",
         "version": APP_VERSION,
         "scanner": scanner_state,
+        "auto_execution": auto_execution_loop.status(),
         "ai": ai_state,
         "forex": forex_engine.status(),
         "trading": await trade_orchestrator.account_status(),
@@ -194,6 +204,7 @@ async def ready():
         "version": APP_VERSION,
         "services": {
             "scanner": bool(scanner_state.get("running", False)),
+            "auto_execution_loop": auto_execution_loop.status(),
             "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)),
             "forex_mt5": bool(forex_state.get("configured", False)),
             "gold_xauusd": True,
