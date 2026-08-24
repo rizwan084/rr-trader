@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -31,6 +32,7 @@ class ExecutionRepository:
         plan = execution.get("risk", {})
         entry_order = execution.get("entry_order") or {}
         protective = execution.get("protective_orders") or []
+        opened_at = datetime.now(timezone.utc).isoformat()
         payload = {
             "signal_id": execution.get("signal_id"),
             "symbol": str(execution.get("symbol", "")).upper(),
@@ -46,7 +48,7 @@ class ExecutionRepository:
             "position_size": plan.get("position_size"),
             "risk_percent": plan.get("risk_percent"),
             "risk_amount": plan.get("risk_amount"),
-            "leverage": signal.get("leverage") or execution.get("leverage"),
+            "leverage": signal.get("leverage") or settings.default_leverage,
             "confidence": signal.get("confidence"),
             "risk_reward": signal.get("risk_reward"),
             "entry_order_id": str(entry_order.get("orderId")) if entry_order.get("orderId") is not None else None,
@@ -54,7 +56,7 @@ class ExecutionRepository:
             "tp2_order_id": str(protective[1].get("orderId")) if len(protective) > 1 else None,
             "tp3_order_id": str(protective[2].get("orderId")) if len(protective) > 2 else None,
             "sl_order_id": str(protective[-1].get("orderId")) if protective else None,
-            "opened_at": entry_order.get("updateTime") or None,
+            "opened_at": opened_at,
             "raw_entry": entry_order,
             "raw_orders": protective,
         }
