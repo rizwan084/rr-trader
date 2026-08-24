@@ -15,6 +15,8 @@ from app.api.dashboard_routes import router as dashboard_router
 from app.api.scanner_routes import router as scanner_router
 from app.api.liquidation_routes import router as liquidation_router
 from app.api.forex_routes import router as forex_router
+from app.core.config import settings
+from app.core.market_resilience import install_market_data_resilience
 
 from app.services.auto_scanner import auto_scanner
 from app.services.ai import ai_service
@@ -30,23 +32,41 @@ COMPONENTS_DIR = FRONTEND_DIR / "components"
 ASSETS_DIR = FRONTEND_DIR / "assets"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.0.1"
 
 
 def get_ai_status() -> dict[str, Any]:
     try:
         result = ai_service.status()
-        return result if isinstance(result, dict) else {"enabled": False, "configured": False}
+        if not isinstance(result, dict):
+            result = {}
+        result["configured"] = bool(
+            str(getattr(settings, "openai_api_key", "") or "").strip()
+        )
+        result["enabled"] = bool(getattr(settings, "ai_enabled", True))
+        result["status"] = (
+            "ONLINE"
+            if result["enabled"] and result["configured"]
+            else "NOT_CONFIGURED"
+        )
+        return result
     except Exception as exc:
-        return {"enabled": False, "configured": False, "status": "ERROR", "error": str(exc)}
+        return {
+            "enabled": False,
+            "configured": False,
+            "status": "ERROR",
+            "error": str(exc),
+        }
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("RR TRADER STARTING")
     print(f"Version: {APP_VERSION}")
+    install_market_data_resilience()
     print("AI status:", get_ai_status())
     print("Forex/Gold status:", forex_engine.status())
+    print("Market-data resilience: ENABLED (Binance -> Bitget fallback)")
     try:
         await auto_scanner.start()
     except Exception as exc:
@@ -114,6 +134,11 @@ async def health():
         "ai": ai_state,
         "forex": forex_engine.status(),
         "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"},
+        "market_data": {
+            "primary": "Binance",
+            "fallback": "Bitget Futures",
+            "resilience_enabled": True,
+        },
         "endpoints": {
             "dashboard": "/dashboard",
             "ai_chat": "/api/ai/chat",
@@ -141,6 +166,7 @@ async def ready():
         scanner_state = auto_scanner.snapshot()
     except Exception:
         scanner_state = {"running": False}
+    forex_state = forex_engine.status()
     return {
         "success": True,
         "ready": True,
@@ -149,9 +175,10 @@ async def ready():
         "services": {
             "scanner": bool(scanner_state.get("running", False)),
             "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)),
-            "forex_mt5": bool(forex_engine.status().get("configured", False)),
+            "forex_mt5": bool(forex_state.get("configured", False)),
             "gold_xauusd": True,
             "liquidation": True,
+            "market_data_fallback": True,
             "dashboard": FRONTEND_INDEX.is_file(),
         },
     }
