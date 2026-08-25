@@ -35,14 +35,13 @@ BITGURU_INDEX = BITGURU_DIR / "index.html"
 BITGURU_ACCOUNTABILITY_INDEX = BITGURU_DIR / "accountability.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
-APP_VERSION = "4.0.2"
+APP_VERSION = "5.0.0"
 
 
 def get_ai_status() -> dict[str, Any]:
     try:
         result = ai_service.status()
-        if not isinstance(result, dict):
-            result = {}
+        if not isinstance(result, dict): result = {}
         result["configured"] = bool(str(getattr(settings, "openai_api_key", "") or "").strip())
         result["enabled"] = bool(getattr(settings, "ai_enabled", True))
         result["status"] = "ONLINE" if result["enabled"] and result["configured"] else "NOT_CONFIGURED"
@@ -59,49 +58,34 @@ async def lifespan(app: FastAPI):
     print("AI status:", get_ai_status())
     print("Forex/Gold status:", forex_engine.status())
     print("Market-data resilience: ENABLED (Binance -> Bitget fallback)")
-    try:
-        await auto_scanner.start()
-    except Exception as exc:
-        print("Scanner startup warning:", exc)
+    try: await auto_scanner.start()
+    except Exception as exc: print("Scanner startup warning:", exc)
     yield
-    try:
-        await auto_scanner.stop()
-    except Exception as exc:
-        print("Scanner shutdown warning:", exc)
+    try: await auto_scanner.stop()
+    except Exception as exc: print("Scanner shutdown warning:", exc)
     close_method = getattr(ai_service, "close", None)
     if callable(close_method):
         try:
             result = close_method()
-            if hasattr(result, "__await__"):
-                await result
-        except Exception as exc:
-            print("AI shutdown warning:", exc)
+            if hasattr(result, "__await__"): await result
+        except Exception as exc: print("AI shutdown warning:", exc)
 
 
 app = FastAPI(title=APP_NAME, description="Professional crypto, Forex and Gold trading intelligence platform.", version=APP_VERSION, lifespan=lifespan)
 
-for path, url, name, html in [
-    (PAGES_DIR, "/pages", "pages", True),
-    (SERVICES_DIR, "/frontend-services", "frontend-services", False),
-    (CHARTS_DIR, "/frontend-charts", "frontend-charts", False),
-    (COMPONENTS_DIR, "/frontend-components", "frontend-components", False),
-    (ASSETS_DIR, "/assets", "assets", False),
-]:
-    if path.is_dir():
-        app.mount(url, StaticFiles(directory=str(path), html=html), name=name)
+for path, url, name, html in [(PAGES_DIR, "/pages", "pages", True),(SERVICES_DIR, "/frontend-services", "frontend-services", False),(CHARTS_DIR, "/frontend-charts", "frontend-charts", False),(COMPONENTS_DIR, "/frontend-components", "frontend-components", False),(ASSETS_DIR, "/assets", "assets", False)]:
+    if path.is_dir(): app.mount(url, StaticFiles(directory=str(path), html=html), name=name)
 
 
 @app.get("/", tags=["System"])
 async def root():
-    if FRONTEND_INDEX.is_file():
-        return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
+    if FRONTEND_INDEX.is_file(): return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     return {"success": False, "error": "Dashboard frontend not found.", "version": APP_VERSION}
 
 
 @app.get("/dashboard", tags=["Dashboard"])
 async def dashboard():
-    if FRONTEND_INDEX.is_file():
-        return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
+    if FRONTEND_INDEX.is_file(): return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     return {"success": False, "error": "Dashboard frontend not found."}
 
 
@@ -109,41 +93,30 @@ async def dashboard():
 @app.get("/bitguru/", tags=["BitGuru"])
 async def bitguru_dashboard():
     path = BITGURU_ACCOUNTABILITY_INDEX if BITGURU_ACCOUNTABILITY_INDEX.is_file() else BITGURU_INDEX
-    if path.is_file():
-        return FileResponse(str(path), media_type="text/html")
+    if path.is_file(): return FileResponse(str(path), media_type="text/html")
     return {"success": False, "error": "BitGuru dashboard frontend not found."}
 
 
 @app.get("/bitguru/manifest.json", tags=["BitGuru"])
 async def bitguru_manifest():
     path = BITGURU_DIR / "manifest.json"
-    if path.is_file():
-        return FileResponse(str(path), media_type="application/manifest+json")
+    if path.is_file(): return FileResponse(str(path), media_type="application/manifest+json")
     return {"success": False, "error": "BitGuru manifest not found."}
 
 
 @app.get("/bitguru/icon.svg", tags=["BitGuru"])
 async def bitguru_icon():
     path = BITGURU_DIR / "icon.svg"
-    if path.is_file():
-        return FileResponse(str(path), media_type="image/svg+xml")
+    if path.is_file(): return FileResponse(str(path), media_type="image/svg+xml")
     return {"success": False, "error": "BitGuru icon not found."}
 
 
 @app.get("/health", tags=["System"])
 async def health():
-    try:
-        scanner_state = auto_scanner.snapshot()
-    except Exception as exc:
-        scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
+    try: scanner_state = auto_scanner.snapshot()
+    except Exception as exc: scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
     ai_state = get_ai_status()
-    return {
-        "success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION,
-        "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(),
-        "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"},
-        "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True},
-        "endpoints": {"dashboard": "/dashboard", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"},
-    }
+    return {"success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION, "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(), "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"}, "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True}, "endpoints": {"dashboard": "/dashboard", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"}}
 
 
 app.include_router(main_router, prefix="/api", tags=["Markets"])
@@ -159,21 +132,10 @@ app.include_router(ai_router)
 @app.get("/ready", tags=["System"])
 async def ready():
     ai_state = get_ai_status()
-    try:
-        scanner_state = auto_scanner.snapshot()
-    except Exception:
-        scanner_state = {"running": False}
+    try: scanner_state = auto_scanner.snapshot()
+    except Exception: scanner_state = {"running": False}
     forex_state = forex_engine.status()
-    return {
-        "success": True, "ready": True, "app": "RR Trader", "version": APP_VERSION,
-        "services": {
-            "scanner": bool(scanner_state.get("running", False)),
-            "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)),
-            "forex_mt5": bool(forex_state.get("configured", False)), "gold_xauusd": True,
-            "liquidation": True, "market_data_fallback": True,
-            "dashboard": FRONTEND_INDEX.is_file(), "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file(),
-        },
-    }
+    return {"success": True, "ready": True, "app": "RR Trader", "version": APP_VERSION, "services": {"scanner": bool(scanner_state.get("running", False)), "ai": bool(ai_state.get("enabled", False) and ai_state.get("configured", False)), "forex_mt5": bool(forex_state.get("configured", False)), "gold_xauusd": True, "liquidation": True, "market_data_fallback": True, "dashboard": FRONTEND_INDEX.is_file(), "bitguru_dashboard": BITGURU_ACCOUNTABILITY_INDEX.is_file() or BITGURU_INDEX.is_file()}}
 
 
 __all__ = ["app"]
