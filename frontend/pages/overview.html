@@ -1,144 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>
-        RR Trader — Overview
-    </title>
-
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>RR Trader — Overview</title>
+<style>
+:root{--bg:#05080d;--panel:#0b111a;--line:#1b2735;--text:#edf3f8;--muted:#7f8c9c;--green:#27df91;--red:#ff6478;--gold:#f2c14e;--blue:#55aaff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#123020,transparent 32%),var(--bg);color:var(--text);font:13px Inter,system-ui,sans-serif}.wrap{max-width:1450px;margin:auto;padding:22px}.head{display:flex;justify-content:space-between;align-items:end;margin-bottom:16px}.head h1{margin:0;font-size:28px}.head p{margin:6px 0 0;color:var(--muted)}button{border:1px solid var(--line);background:#0b1119;color:var(--text);border-radius:9px;padding:9px 13px;cursor:pointer}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}.card{background:linear-gradient(145deg,#0e1621,#090e15);border:1px solid var(--line);border-radius:14px;padding:15px}.label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.8px}.num{font-size:25px;font-weight:850;margin-top:7px}.green{color:var(--green)}.gold{color:var(--gold)}.blue{color:var(--blue)}.muted{color:var(--muted)}.toolbar{display:flex;align-items:center;justify-content:space-between;margin:16px 0 10px}.toolbar h2{margin:0;font-size:17px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.signal{position:relative;overflow:hidden}.signal:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--green)}.signal.short:before{background:var(--red)}.signalTop{display:flex;justify-content:space-between;align-items:start}.symbol{font-size:20px;font-weight:900}.dir{font-weight:850;margin-top:4px}.long{color:var(--green)}.shortText{color:var(--red)}.confidence{font-size:27px;font-weight:900;color:var(--gold)}.bar{height:6px;background:#17212d;border-radius:9px;overflow:hidden;margin:12px 0}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green))}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.metric{background:#080e15;border:1px solid var(--line);border-radius:8px;padding:9px}.metric b{display:block;margin-top:4px}.reason{margin-top:10px;color:#aab6c5;font-size:11px;line-height:1.45}.empty{padding:45px;text-align:center;color:var(--muted)}.status{font-size:11px;color:var(--green)}@media(max-width:1000px){.stats{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:650px){.wrap{padding:13px}.stats,.grid{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}.head h1{font-size:22px}}
+</style>
 </head>
-
-
-<body>
-
-    <main>
-
-        <header>
-
-            <h1>
-                RR Trader Overview
-            </h1>
-
-            <p>
-                Live market intelligence and system overview.
-            </p>
-
-        </header>
-
-
-        <section>
-
-            <h2>
-                Market Intelligence
-            </h2>
-
-            <p>
-                Core analysis uses 15m, 1H and 4H.
-            </p>
-
-        </section>
-
-
-        <section>
-
-            <h2>
-                Trade Opportunities
-            </h2>
-
-            <p>
-                High-quality opportunities will appear here
-                after the scanner and 24-point engine are live.
-            </p>
-
-        </section>
-
-
-        <section>
-
-            <h2>
-                Risk Engine
-            </h2>
-
-            <p>
-                Position sizing, portfolio exposure and
-                execution safety will be shown here.
-            </p>
-
-        </section>
-
-
-        <section>
-
-            <h2>
-                System Status
-            </h2>
-
-            <div id="system-status">
-                Checking backend...
-            </div>
-
-        </section>
-
-    </main>
-
-
-    <script>
-
-        async function loadStatus() {
-
-            const element =
-                document.getElementById(
-                    "system-status"
-                );
-
-            try {
-
-                const response =
-                    await fetch(
-                        "/api/health"
-                    );
-
-                const data =
-                    await response.json();
-
-                if (
-                    response.ok &&
-                    data.success
-                ) {
-
-                    element.textContent =
-                        "Backend Online — " +
-                        data.version;
-
-                } else {
-
-                    element.textContent =
-                        "Backend Error";
-
-                }
-
-            } catch (error) {
-
-                element.textContent =
-                    "Backend Offline";
-
-            }
-
-        }
-
-
-        loadStatus();
-
-    </script>
-
-</body>
-
-</html>
+<body><main class="wrap">
+<header class="head"><div><h1>RR Trader Overview</h1><p>Live Binance market scan • only qualified 85%+ opportunities</p></div><div><span id="status" class="status">SCANNER CHECKING</span> <button onclick="load()">Refresh</button></div></header>
+<section class="stats"><div class="card"><div class="label">Minimum Confidence</div><div class="num gold">85%+</div></div><div class="card"><div class="label">Market Universe</div><div class="num" id="universe">—</div></div><div class="card"><div class="label">Deep Analyzed</div><div class="num blue" id="deep">—</div></div><div class="card"><div class="label">85+ Qualified</div><div class="num green" id="qualified">—</div></div><div class="card"><div class="label">Next Scan</div><div class="num" id="next">—</div></div></section>
+<div class="toolbar"><h2>85%+ Live Opportunities</h2><span class="muted">15m • 1H • 4H + advanced confirmations</span></div>
+<section id="opportunities" class="grid"><div class="card empty">Loading live market scan...</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);function esc(v){return String(v??'—').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}function n(v,d=2){const x=Number(v);return Number.isFinite(x)?x.toFixed(d):'—';}
+function card(s){const d=String(s.direction||'NEUTRAL').toUpperCase(),c=Number(s.confidence)||0,short=d==='SHORT';const f=s.factors||{};const reasons=Array.isArray(s.reasons)?s.reasons.slice(0,2).join(' • '):'All critical directional confirmations passed.';return `<article class="card signal ${short?'short':''}"><div class="signalTop"><div><div class="symbol">${esc(String(s.symbol||'').replace('USDT',''))}/USDT</div><div class="dir ${short?'shortText':'long'}">${esc(d)} • QUALIFIED</div></div><div class="confidence">${n(c,1)}%</div></div><div class="bar"><i style="width:${Math.min(100,Math.max(0,c))}%"></i></div><div class="metrics"><div class="metric"><span class="label">Entry</span><b>${esc(s.entry)}</b></div><div class="metric"><span class="label">SL</span><b>${esc(s.stop_loss)}</b></div><div class="metric"><span class="label">R:R</span><b>${esc(s.risk_reward)}</b></div><div class="metric"><span class="label">TP1</span><b>${esc(s.tp1)}</b></div><div class="metric"><span class="label">TP2</span><b>${esc(s.tp2)}</b></div><div class="metric"><span class="label">TP3</span><b>${esc(s.tp3)}</b></div></div><div class="reason"><b>Why:</b> ${esc(reasons)}<br><span class="muted">Trend ${n(f.trend,0)} • Structure ${n(f.structure,0)} • Momentum ${n(f.momentum,0)} • MTF ${n(f.multi_timeframe,0)}</span></div></article>`;}
+async function load(){try{const r=await fetch('/api/dashboard/overview?ts='+Date.now(),{cache:'no-store'});const d=await r.json();if(!r.ok||!d.success)throw new Error('Overview unavailable');const sc=d.scanner||{};$('status').textContent=sc.running?'SCANNER LIVE':'SCANNER READY';$('universe').textContent=sc.scanned_universe??0;$('deep').textContent=sc.deep_analyzed??0;$('qualified').textContent=d.opportunities?.length??0;$('next').textContent=sc.next_scan_in_seconds!=null?Math.ceil(sc.next_scan_in_seconds)+'s':'—';const list=Array.isArray(d.opportunities)?d.opportunities:[];$('opportunities').innerHTML=list.length?list.map(card).join(''):'<div class="card empty" style="grid-column:1/-1">No 85%+ setup is currently qualified. The scanner will keep checking the full market.</div>';}catch(e){$('status').textContent='SCANNER ERROR';$('opportunities').innerHTML='<div class="card empty" style="grid-column:1/-1">Unable to load live scanner results.</div>';}}
+load();setInterval(load,30000);
+</script></body></html>
