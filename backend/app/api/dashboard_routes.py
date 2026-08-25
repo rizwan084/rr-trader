@@ -6,6 +6,9 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
+from app.core.config import settings
+from app.services.auto_scanner import auto_scanner
+
 router = APIRouter()
 MIN_RISK_REWARD = 2.0
 MIN_CONFIDENCE = 85.0
@@ -15,19 +18,61 @@ def _bridge_url() -> str:
     return os.getenv("MT5_BRIDGE_URL", "").strip().rstrip("/")
 
 
+def _qualified(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            confidence = float(item.get("confidence", 0) or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence < MIN_CONFIDENCE:
+            continue
+        direction = str(item.get("direction", "NEUTRAL")).upper()
+        if direction not in {"LONG", "SHORT"}:
+            continue
+        if item.get("publishable") is not True:
+            continue
+        out.append(item)
+    out.sort(key=lambda x: float(x.get("confidence", 0) or 0), reverse=True)
+    return out
+
+
 @router.get("/dashboard/overview")
 async def dashboard_overview() -> dict[str, Any]:
-    return {"success": True, "section": "overview", "markets": ["crypto", "forex"], "crypto": {"spot": True, "futures": True, "timeframes": ["15m", "1h", "4h"]}, "forex": {"primary": "XAUUSD", "timeframes": ["1m", "3m", "5m", "15m"]}, "risk": {"minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "live_execution": False}, "confidence": {"engine_version": "5.0.0", "advanced_rules": "25-50", "market_expansion_bonus_max": 18.0, "advanced_bonus_max": 15.0}}
+    snapshot = auto_scanner.snapshot()
+    latest = snapshot.get("latest", {}) if isinstance(snapshot, dict) else {}
+    qualified = _qualified(latest.get("analyses", []) if isinstance(latest, dict) else [])
+    return {
+        "success": True,
+        "section": "overview",
+        "markets": ["crypto", "forex"],
+        "crypto": {"spot": True, "futures": True, "timeframes": ["15m", "1h", "4h"]},
+        "forex": {"primary": "XAUUSD", "timeframes": ["1m", "3m", "5m", "15m"]},
+        "risk": {"minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "live_execution": False},
+        "confidence": {"engine_version": "5.0.0", "advanced_rules": "25-50", "market_expansion_bonus_max": 18.0, "advanced_bonus_max": 15.0},
+        "scanner": {"running": bool(snapshot.get("running", False)), "market": snapshot.get("market", "futures"), "last_scan_at": snapshot.get("last_scan_at"), "next_scan_in_seconds": snapshot.get("next_scan_in_seconds"), "scanned_universe": latest.get("scanned_universe", 0) if isinstance(latest, dict) else 0, "deep_analyzed": latest.get("deep_analyzed", 0) if isinstance(latest, dict) else 0, "qualified_85_plus": len(qualified)},
+        "opportunities": qualified,
+    }
 
 
 @router.get("/dashboard/opportunities")
-async def dashboard_opportunities() -> dict[str, Any]:
-    return {"success": True, "section": "trade_opportunities", "status": "scanner_driven", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD}
+async def dashboard_opportunities(limit: int = Query(default=50, ge=1, le=100)) -> dict[str, Any]:
+    snapshot = auto_scanner.snapshot()
+    latest = snapshot.get("latest", {}) if isinstance(snapshot, dict) else {}
+    qualified = _qualified(latest.get("analyses", []) if isinstance(latest, dict) else [])
+    return {"success": True, "section": "trade_opportunities", "status": "live_scanner", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD, "scanned_universe": latest.get("scanned_universe", 0) if isinstance(latest, dict) else 0, "deep_analyzed": latest.get("deep_analyzed", 0) if isinstance(latest, dict) else 0, "count": len(qualified[:limit]), "opportunities": qualified[:limit]}
 
 
 @router.get("/dashboard/signals")
-async def dashboard_signals() -> dict[str, Any]:
-    return {"success": True, "section": "signals", "status": "scanner_driven", "confidence_engine": "5.0.0", "advanced_rules": "25-50", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD}
+async def dashboard_signals(limit: int = Query(default=50, ge=1, le=100)) -> dict[str, Any]:
+    snapshot = auto_scanner.snapshot()
+    latest = snapshot.get("latest", {}) if isinstance(snapshot, dict) else {}
+    qualified = _qualified(latest.get("analyses", []) if isinstance(latest, dict) else [])
+    return {"success": True, "section": "signals", "status": "live_scanner", "confidence_engine": "5.0.0", "advanced_rules": "25-50", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD, "signals": qualified[:limit]}
 
 
 @router.get("/dashboard/ai")
@@ -52,7 +97,7 @@ async def dashboard_analytics() -> dict[str, Any]:
 
 @router.get("/dashboard/settings")
 async def dashboard_settings() -> dict[str, Any]:
-    return {"success": True, "section": "settings", "minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "risk_per_trade_percent": 1.0, "confidence_engine": "5.0.0", "advanced_rules": "25-50"}
+    return {"success": True, "section": "settings", "minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "risk_per_trade_percent": 1.0, "confidence_engine": "5.0.0", "advanced_rules": "25-50", "deep_analysis_limit": settings.deep_analysis_limit}
 
 
 @router.get("/dashboard/forex/status")
