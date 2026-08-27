@@ -174,11 +174,27 @@ async def healthz():
 
 @app.get("/health", tags=["System"])
 async def health():
-    try: scanner_state = auto_scanner.snapshot()
-    except Exception as exc: scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
-    ai_state = get_ai_status()
-    return {"success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION, "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(), "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"}, "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True}, "supabase": supabase_store.status(), "endpoints": {"dashboard": "/dashboard", "farhat": "/farhat", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"}}
-
+    """Fast dashboard health endpoint. Never waits on external services."""
+    try:
+        scanner_state = auto_scanner.snapshot()
+    except Exception as exc:
+        scanner_state = {"running": False, "status": "ERROR", "error": type(exc).__name__}
+    return {
+        "success": True,
+        "app": "RR Trader",
+        "status": "healthy",
+        "version": APP_VERSION,
+        "scanner": {
+            "running": bool(scanner_state.get("running", False)),
+            "last_scan_at": scanner_state.get("last_scan_at"),
+            "next_scan_in_seconds": scanner_state.get("next_scan_in_seconds"),
+            "scan_count": scanner_state.get("scan_count", 0),
+            "error_count": scanner_state.get("error_count", 0),
+        },
+        "market_data": {"primary": "Binance", "fallback": "none", "resilience_enabled": True},
+        "supabase": {"configured": bool(getattr(settings, "supabase_url", ""))},
+        "endpoints": {"dashboard": "/", "healthz": "/healthz", "scanner": "/api/scanner/status", "analyze": "/api/analyze"},
+    }
 
 app.include_router(main_router, prefix="/api", tags=["Markets"])
 app.include_router(trade_router, prefix="/api", tags=["Trade Engine"])
