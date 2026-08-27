@@ -46,6 +46,8 @@ class Settings:
     telegram_enabled: bool = _env_bool("TELEGRAM_ENABLED", False)
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    supabase_url: str = os.getenv("SUPABASE_URL", "")
+    supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 
 settings = Settings()
