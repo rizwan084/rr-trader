@@ -9,8 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Farhat Binance">
 <meta name="description" content="Farhat Binance — RR Trader AI market intelligence">
 <link rel="manifest" href="/farhat/manifest.json">
-<link rel="icon" href="/farhat/icon.svg">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0"></script>
+<link rel="icon" href="/farhat/icon.svg"><link rel="apple-touch-icon" href="/farhat/icon.svg">
 <style>
 :root{--bg:#05080d;--panel:#0b1119;--panel2:#101923;--line:#1b2735;--text:#edf3f8;--muted:#8290a1;--green:#27e39a;--red:#ff5f73;--gold:#f3c64d;--blue:#55a8ff}
 *{box-sizing:border-box}html{background:var(--bg)}body{margin:0;background:radial-gradient(circle at 70% -10%,#123522,transparent 34%),var(--bg);color:var(--text);font:14px Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding-bottom:env(safe-area-inset-bottom)}
@@ -85,7 +84,14 @@ body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.side{position:rela
 <script>
 const SUPABASE_URL='https://dwoipfpruhttqiogcdwj.supabase.co';
 const SUPABASE_KEY='sb_publishable_1STVv0ug2gHGlDz0nf5Ygw_CLzeL9GM';
-const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const SB_HEADERS={apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY};
+async function sbFetch(path,opts={}){
+ const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),8000);
+ try{const r=await fetch(SUPABASE_URL+'/rest/v1/'+path,{...opts,headers:{...SB_HEADERS,...(opts.headers||{})},signal:controller.signal});
+ const t=await r.text();let d=null;try{d=t?JSON.parse(t):null}catch{}
+ if(!r.ok)throw Error((d&&d.message)||('Supabase HTTP '+r.status));return d;
+ }finally{clearTimeout(timer)}
+}
 const $=id=>document.getElementById(id);
 const S={results:[],analysis:null,lastByKey:{}};
 const esc=x=>String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -95,7 +101,11 @@ function go(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove(
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>go(b.dataset.page));
 function rows(a){if(!a?.length)return'<div class="empty">No qualified setups yet.</div>';return'<div class="table-wrap"><table class="table"><thead><tr><th>Symbol</th><th>Direction</th><th>Confidence</th><th>Entry</th><th>SL</th><th>R:R</th></tr></thead><tbody>'+a.map(x=>{const d=String(x.signal||x.direction||'NO_TRADE').toUpperCase();return'<tr><td><b>'+esc(x.symbol)+'</b></td><td class="'+(d==='LONG'?'green':d==='SHORT'?'red':'')+'">'+d+'</td><td>'+cf(x.confidence??x.score)+'</td><td>'+esc(x.entry??x.entry_price??x.price??'—')+'</td><td class="red">'+esc(x.stop_loss??x.sl??'—')+'</td><td class="gold">'+esc(x.rr??x.risk_reward??'—')+'</td></tr>'}).join('')+'</tbody></table></div>'}
 async function api(u,o={}){const r=await fetch(u,{...o,headers:{'Content-Type':'application/json',...(o.headers||{})}});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw Error('Invalid server response')}if(!r.ok)throw Error(d.detail||d.error||('HTTP '+r.status));return d}
-async function checkSupabase(){try{const started=performance.now();const q=await sb.from('signals').select('id').limit(1);if(q.error)throw q.error;const ms=Math.round(performance.now()-started);$('sb').textContent='Connected · '+ms+'ms';$('sbLabel').textContent='SUPABASE ONLINE';$('sbDot').className='status-dot ok';$('storageState').textContent='ONLINE';$('sbDetail').textContent='Connected to Farhat Binance database.';return true}catch(e){$('sb').textContent='Connection error · '+(e.message||'unknown');$('sbLabel').textContent='SUPABASE ERROR';$('sbDot').className='status-dot bad';$('storageState').textContent='ERROR';$('sbDetail').textContent='Database check failed: '+(e.message||'unknown');return false}}
+async function checkSupabase(){
+ try{const started=performance.now();await sbFetch('signals?select=id&limit=1');const ms=Math.round(performance.now()-started);
+ $('sb').textContent='Connected · '+ms+'ms';$('sbLabel').textContent='SUPABASE ONLINE';$('sbDot').className='status-dot ok';$('storageState').textContent='ONLINE';$('sbDetail').textContent='Connected to Farhat Binance database.';return true;
+ }catch(e){$('sb').textContent='Connection error · '+(e.name==='AbortError'?'timeout':(e.message||'unknown'));$('sbLabel').textContent='SUPABASE ERROR';$('sbDot').className='status-dot bad';$('storageState').textContent='ERROR';$('sbDetail').textContent='Database check failed: '+(e.message||'unknown');return false}
+}
 async function health(){try{const d=await api('/health');const running=!!d.scanner?.running;$('health').textContent='Backend online · Scanner '+(running?'running':'starting');$('backend').textContent='RR Trader '+(d.version||'')+' · '+(d.market_data?.primary||'Binance')+' live';$('system').textContent='ONLINE';$('systemDetail').textContent='Backend '+(d.status||'healthy');$('scannerState').textContent=running?'LIVE':'STARTING';$('scannerState').className=running?'green':'gold';$('liveDot').style.background=running?'var(--green)':'var(--gold)'}catch(e){$('health').textContent='Backend unavailable';$('backend').textContent=e.message;$('system').textContent='OFFLINE';$('system').className='value red';$('scannerState').textContent='OFFLINE';$('scannerState').className='red';$('liveDot').style.background='var(--red)'}}
 function alertEnabled(){return localStorage.getItem('rr_alerts_enabled')==='1'}
 function setAlertUI(){const on=alertEnabled();$('notify').textContent=on?'Alerts Enabled':'Enable 95% Alerts';$('notifySettings').textContent=on?'Alerts Enabled':'Enable Alerts';$('alertState').textContent=on?'ON':'OFF';$('alertState').className='value '+(on?'green':'gold')}
@@ -103,15 +113,27 @@ async function enableAlerts(){if(!('Notification' in window)){toast('Notificatio
 async function notifyClient(title,body,tag){try{if('serviceWorker' in navigator){const reg=await navigator.serviceWorker.ready;await reg.showNotification(title,{body,icon:'/farhat/icon.svg',badge:'/farhat/icon.svg',tag:tag||'rr-high-confidence',data:{url:'/farhat'}})}else if(window.Notification&&Notification.permission==='granted'){new Notification(title,{body,tag})}}catch(e){}}
 function notifyHighConfidence(items){if(!alertEnabled()||!Array.isArray(items))return;const now=Date.now();for(const x of items){const confidence=Number(x.confidence??x.score??0);const direction=String(x.direction||x.signal||'').toUpperCase();const symbol=String(x.symbol||'').toUpperCase();if(!symbol||confidence<=95||!['LONG','SHORT'].includes(direction))continue;const key=symbol+'_'+direction;const previous=S.lastByKey[key];S.lastByKey[key]=confidence;const last=Number(localStorage.getItem('rr_alert_'+key)||0);const crossed=previous==null||previous<=95;if(crossed&&now-last>30*60*1000){localStorage.setItem('rr_alert_'+key,String(now));notifyClient('RR Trader · '+symbol+' '+direction,'High-confidence setup: '+confidence.toFixed(1)+'% confidence',key);toast(symbol+' '+direction+' crossed '+confidence.toFixed(1)+'% confidence');return}}}
 async function scanner(){try{const r=await api('/api/scanner/results?limit=20');const t=await api('/api/scanner/top?limit=10');S.results=r.results||[];notifyHighConfidence(S.results);const list=(t.opportunities||S.results);const b=list[0]||S.results[0];$('best').textContent=b?.symbol||'—';$('conf').textContent=cf(b?.confidence);$('hero').textContent=b?.symbol||'—';$('heroScore').textContent=cf(b?.confidence);$('heroText').textContent=b?(String(b.direction||b.signal||'NO_TRADE').toUpperCase()+' setup · '+(b.publishable?'qualified':'under review')):'Waiting for high-confluence setup.';$('top').innerHTML=rows(list.slice(0,6));$('scanner').innerHTML=rows(S.results);$('lastScan').textContent=r.last_scan_at?new Date(r.last_scan_at).toLocaleTimeString():'—';$('universe').textContent=String(r.scanned_universe??'—');$('scanMeta').textContent=(r.candidate_count??0)+' candidates · '+(r.deep_analyzed??0)+' analyzed'}catch(e){$('top').innerHTML='<div class="empty red">'+esc(e.message)+'</div>';$('scanner').innerHTML='<div class="empty red">'+esc(e.message)+'</div>'}}
-async function loadSignals(){try{const q=await sb.from('signals').select('symbol,direction,confidence,entry_price,target_price,stop_loss,status,scanned_at').order('scanned_at',{ascending:false}).limit(100);if(q.error)throw q.error;const data=q.data||[];$('signals').innerHTML=rows(data.map(x=>({symbol:x.symbol,direction:x.direction,confidence:x.confidence,entry:x.entry_price,stop_loss:x.stop_loss,rr:x.target_price&&x.entry_price&&x.stop_loss?Math.abs((x.target_price-x.entry_price)/(x.entry_price-x.stop_loss)).toFixed(2):'—'})));$('sb').textContent='Connected · '+data.length+' stored signals'}catch(e){$('signals').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
-async function loadPublisher(){try{const s=await sb.from('publisher_settings').select('auto_publish,min_confidence,cycle_status').limit(1).maybeSingle();if(!s.error&&s.data){$('auto').textContent=s.data.auto_publish?'ON':'OFF';$('min').textContent=Number(s.data.min_confidence??85).toFixed(0)+'%';$('cycle').textContent=s.data.cycle_status||'WAITING'}else if(s.error){$('cycle').textContent='AUTH REQUIRED'}const q=await sb.from('publish_logs').select('action,status,message,created_at').order('created_at',{ascending:false}).limit(20);if(q.error)throw q.error;if(q.data?.length)$('logs').innerHTML='<div class="table-wrap"><table class="table"><tr><th>Action</th><th>Status</th><th>Message</th><th>Time</th></tr>'+q.data.map(x=>'<tr><td>'+esc(x.action)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.message||'')+'</td><td>'+esc(new Date(x.created_at).toLocaleString())+'</td></tr>').join('')+'</table></div>';else $('logs').textContent='No publisher logs yet.'}catch(e){$('logs').textContent=e.message}}
+async function loadSignals(){
+ try{const data=await sbFetch('signals?select=symbol,direction,confidence,entry_price,target_price,stop_loss,status,scanned_at&order=scanned_at.desc&limit=100');const list=Array.isArray(data)?data:[];
+ $('signals').innerHTML=rows(list.map(x=>({symbol:x.symbol,direction:x.direction,confidence:x.confidence,entry:x.entry_price,stop_loss:x.stop_loss,rr:x.target_price&&x.entry_price&&x.stop_loss?Math.abs((x.target_price-x.entry_price)/(x.entry_price-x.stop_loss)).toFixed(2):'—'})));
+ $('sb').textContent='Connected · '+list.length+' stored signals';
+ }catch(e){$('signals').innerHTML='<div class="empty">'+esc(e.message||'Database read failed')+'</div>'}
+}
+async function loadPublisher(){
+ try{const sData=await sbFetch('publisher_settings?select=auto_publish,min_confidence,cycle_status&limit=1');const s=Array.isArray(sData)?sData[0]:null;
+ if(s){$('auto').textContent=s.auto_publish?'ON':'OFF';$('min').textContent=Number(s.min_confidence??85).toFixed(0)+'%';$('cycle').textContent=s.cycle_status||'WAITING'}else $('cycle').textContent='WAITING';
+ const data=await sbFetch('publish_logs?select=action,status,message,created_at&order=created_at.desc&limit=20');const list=Array.isArray(data)?data:[];
+ if(list.length)$('logs').innerHTML='<div class="table-wrap"><table class="table"><tr><th>Action</th><th>Status</th><th>Message</th><th>Time</th></tr>'+list.map(x=>'<tr><td>'+esc(x.action)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.message||'')+'</td><td>'+esc(new Date(x.created_at).toLocaleString())+'</td></tr>').join('')+'</table></div>';else $('logs').textContent='No publisher logs yet.';
+ }catch(e){$('logs').textContent=e.message||'Publisher data unavailable'}
+}
 async function analyze(){const s=$('symbol').value.trim().toUpperCase(),m=$('market').value;go('analysis');try{const d=await api('/api/analyze?symbol='+encodeURIComponent(s)+'&market='+encodeURIComponent(m)),a=d.analysis||d.data||d;S.analysis=a;$('asym').textContent=a.symbol||s;const dec=String(a.signal||a.direction||'NO_TRADE').toUpperCase();$('adec').textContent=dec;$('adec').className='value '+(dec==='LONG'?'green':dec==='SHORT'?'red':'');$('aconf').textContent=cf(a.confidence??a.score);$('entry').textContent=a.entry??a.entry_price??'—';$('sl').textContent=a.stop_loss??a.sl??'—';$('rr').textContent=a.rr??a.risk_reward??'—';$('reason').textContent=a.explanation||a.reason||'Analysis completed.'}catch(e){$('reason').textContent=e.message}}
 async function ask(){const q=$('q').value.trim();if(!q)return;const c=$('chat');c.innerHTML+='<div class="msg user">'+esc(q)+'</div>';try{const d=await api('/api/ai/chat',{method:'POST',body:JSON.stringify({message:q,context:{scanner:S.results,analysis:S.analysis},allow_image:false})});c.innerHTML+='<div class="msg ai">'+esc(d.response||d.message||d.answer||'No response')+'</div>'}catch(e){c.innerHTML+='<div class="msg ai red">'+esc(e.message)+'</div>'}c.scrollTop=c.scrollHeight}
 $('analyze').onclick=analyze;$('ask').onclick=ask;$('refresh').onclick=async()=>{await Promise.all([health(),checkSupabase(),scanner()]);loadSignals();loadPublisher()};$('scan').onclick=async()=>{try{await api('/api/scanner/scan-now',{method:'POST'});await scanner();toast('Scan completed.')}catch(e){toast(e.message)}};
 $('notify').onclick=enableAlerts;$('notifySettings').onclick=enableAlerts;
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/farhat/sw.js').catch(()=>{});
 setAlertUI();
-sb.channel('rr-trader-signals').on('postgres_changes',{event:'INSERT',schema:'public',table:'signals'},()=>{scanner();loadSignals()}).subscribe();
+// REST + short polling is used instead of the Supabase browser SDK here.
+ // This keeps the dashboard reliable in iPhone/Facebook webviews.
 (async()=>{await Promise.all([health(),checkSupabase(),scanner()]);loadSignals();loadPublisher()})();
 setInterval(scanner,10000);setInterval(health,30000);
 </script>
