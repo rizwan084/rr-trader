@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.services.auto_scanner import auto_scanner
 
 router = APIRouter()
-MIN_RISK_REWARD = 2.0
+MIN_RISK_REWARD = 0.0
 MIN_CONFIDENCE = 85.0
 
 
@@ -52,8 +52,8 @@ async def dashboard_overview() -> dict[str, Any]:
         "markets": ["crypto", "forex"],
         "crypto": {"spot": True, "futures": True, "timeframes": ["15m", "1h", "4h"]},
         "forex": {"primary": "XAUUSD", "timeframes": ["1m", "3m", "5m", "15m"]},
-        "risk": {"minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "live_execution": False},
-        "confidence": {"engine_version": "5.0.0", "advanced_rules": "25-50", "market_expansion_bonus_max": 18.0, "advanced_bonus_max": 15.0},
+        "risk": {"minimum_confidence": MIN_CONFIDENCE, "live_execution": False},
+        "confidence": {"engine_version": "core-7", "rules": ["EMA trend", "RSI", "Momentum", "Volume", "Market Structure", "MTF 15m/1h/4h", "Support/Resistance"]},
         "scanner": {"running": bool(snapshot.get("running", False)), "market": snapshot.get("market", "futures"), "last_scan_at": snapshot.get("last_scan_at"), "next_scan_in_seconds": snapshot.get("next_scan_in_seconds"), "scanned_universe": latest.get("scanned_universe", 0) if isinstance(latest, dict) else 0, "deep_analyzed": latest.get("deep_analyzed", 0) if isinstance(latest, dict) else 0, "qualified_85_plus": len(qualified)},
         "opportunities": qualified,
     }
@@ -64,7 +64,7 @@ async def dashboard_opportunities(limit: int = Query(default=50, ge=1, le=100)) 
     snapshot = auto_scanner.snapshot()
     latest = snapshot.get("latest", {}) if isinstance(snapshot, dict) else {}
     qualified = _qualified(latest.get("analyses", []) if isinstance(latest, dict) else [])
-    return {"success": True, "section": "trade_opportunities", "status": "live_scanner", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD, "scanned_universe": latest.get("scanned_universe", 0) if isinstance(latest, dict) else 0, "deep_analyzed": latest.get("deep_analyzed", 0) if isinstance(latest, dict) else 0, "count": len(qualified[:limit]), "opportunities": qualified[:limit]}
+    return {"success": True, "section": "trade_opportunities", "status": "live_scanner", "minimum_confidence": MIN_CONFIDENCE, "scanned_universe": latest.get("scanned_universe", 0) if isinstance(latest, dict) else 0, "deep_analyzed": latest.get("deep_analyzed", 0) if isinstance(latest, dict) else 0, "count": len(qualified[:limit]), "opportunities": qualified[:limit]}
 
 
 @router.get("/dashboard/signals")
@@ -72,7 +72,7 @@ async def dashboard_signals(limit: int = Query(default=50, ge=1, le=100)) -> dic
     snapshot = auto_scanner.snapshot()
     latest = snapshot.get("latest", {}) if isinstance(snapshot, dict) else {}
     qualified = _qualified(latest.get("analyses", []) if isinstance(latest, dict) else [])
-    return {"success": True, "section": "signals", "status": "live_scanner", "confidence_engine": "5.0.0", "advanced_rules": "25-50", "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD, "signals": qualified[:limit]}
+    return {"success": True, "section": "signals", "status": "live_scanner", "confidence_engine": "core-7", "rules": ["EMA trend", "RSI", "Momentum", "Volume", "Market Structure", "MTF 15m/1h/4h", "Support/Resistance"], "minimum_confidence": MIN_CONFIDENCE, "minimum_rr": MIN_RISK_REWARD, "signals": qualified[:limit]}
 
 
 @router.get("/dashboard/ai")
