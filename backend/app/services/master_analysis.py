@@ -1649,7 +1649,6 @@ class MasterAnalysisEngine:
                     0,
                 )
             ) > 0
-            and risk_reward >= 2.0
             and stop_quality == "VALID"
         )
 
@@ -1704,69 +1703,19 @@ class MasterAnalysisEngine:
         )
 
         # -------------------------------------------------
-        # HARD GATES
+        # SIGNAL GATE
         # -------------------------------------------------
-
-        publishable_mtf = bool(
-            mtf.get(
-                "publishable_mtf",
-                False,
-            )
-        )
-
-        if not publishable_mtf:
-
-            confidence = min(
-                confidence,
-                84.99,
-            )
-
-        four_hour = timeframes.get(
-            "4h",
-            {},
-        )
-
-        if not isinstance(
-            four_hour,
-            dict,
-        ):
-            four_hour = {}
-
-        four_hour_direction = (
-            self._direction(
-                four_hour.get(
-                    "direction"
-                )
-            )
-        )
-
-        if (
-            direction in {
-                "LONG",
-                "SHORT",
-            }
-            and four_hour_direction in {
-                "LONG",
-                "SHORT",
-            }
-            and four_hour_direction
-            != direction
-        ):
-
-            confidence = max(
-                0.0,
-                confidence - 10.0,
-            )
+        # Only the Core-7 confidence engine decides whether a
+        # directional setup is qualified. MTF/risk/derivatives/
+        # order-book/liquidation rules are not additional signal gates.
+        publishable_mtf = bool(mtf.get("direction") == direction)
 
         publishable = (
-            direction in {
-                "LONG",
-                "SHORT",
-            }
-            and confidence
-            >= self.MIN_CONFIDENCE
+            direction in {"LONG", "SHORT"}
+            and confidence >= self.MIN_CONFIDENCE
             and publishable_mtf
             and levels_valid
+            and bool(confidence_result.get("passed", False))
         )
 
         # -------------------------------------------------
