@@ -15,6 +15,7 @@ from app.services.market_scanner import (
 from app.services.master_analysis import (
     master_analysis_engine,
 )
+from app.services.supabase_store import persist_scan_result
 
 # New multi-exchange client
 from app.clients.binance import (
@@ -1157,78 +1158,31 @@ class AutoScanner:
     async def _loop(
         self,
     ) -> None:
-
+        """Run scans in the background without blocking FastAPI startup."""
         while self._running:
-
-            started = (
-                time.monotonic()
-            )
-
+            started = time.monotonic()
             try:
-
-                await self.scan_once()
-
-            except (
-                asyncio.CancelledError,
-            ):
-
+                result = await self.scan_once()
+                if isinstance(result, dict) and result.get("success"):
+                    asyncio.create_task(persist_scan_result(result))
+            except asyncio.CancelledError:
                 raise
-
             except Exception as exc:
-
                 self._error_count += 1
-
                 self._last_scan = {
-                    "success":
-                        False,
-
-                    "market":
-                        self.market,
-
-                    "timestamp":
-                        datetime.now(
-                            timezone.utc
-                        ).isoformat(),
-
-                    "error":
-                        str(exc),
-
-                    "last_successful":
-                        dict(
-                            self._last_successful_scan
-                        ),
+                    "success": False,
+                    "market": self.market,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": str(exc),
+                    "last_successful": dict(self._last_successful_scan),
                 }
-
-            elapsed = (
-                time.monotonic()
-                - started
-            )
-
-            sleep_for = max(
-                0.0,
-                float(
-                    self.refresh_seconds
-                )
-                - elapsed,
-            )
-
-            self._next_scan_at = (
-                time.monotonic()
-                + sleep_for
-            )
-
+            elapsed = time.monotonic() - started
+            sleep_for = max(0.0, float(self.refresh_seconds) - elapsed)
+            self._next_scan_at = time.monotonic() + sleep_for
             if sleep_for > 0:
-
                 try:
-
-                    await asyncio.sleep(
-                        sleep_for
-                    )
-
-                except (
-                    asyncio.CancelledError,
-                ):
-
+                    await asyncio.sleep(sleep_for)
+                except asyncio.CancelledError:
                     raise
 
     # =====================================================
@@ -1245,15 +1199,9 @@ class AutoScanner:
 
         self._running = True
 
-        # First scan immediately.
-        await self.scan_once()
-
-        # Continue automatically.
-        self._task = (
-            asyncio.create_task(
-                self._loop()
-            )
-        )
+        # Do not block application startup on the first market scan.
+        # The background loop performs the first scan immediately.
+        self._task = asyncio.create_task(self._loop())
 
     # =====================================================
     # STOP
