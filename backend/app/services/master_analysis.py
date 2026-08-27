@@ -1721,116 +1721,14 @@ class MasterAnalysisEngine:
         # -------------------------------------------------
         # REASONS
         # -------------------------------------------------
-
         reasons: list[str] = []
-
-        for timeframe in (
-            self.CORE_TIMEFRAMES
-        ):
-
-            item = timeframes.get(
-                timeframe,
-                {},
-            )
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
-
-            timeframe_reasons = item.get(
-                "reasons",
-                [],
-            )
-
-            if isinstance(
-                timeframe_reasons,
-                list,
-            ):
-
-                reasons.extend(
-                    str(x)
-                    for x
-                    in timeframe_reasons
-                )
-
-        derivative_reasons = (
-            derivatives.get(
-                "reasons",
-                [],
-            )
-        )
-
-        if isinstance(
-            derivative_reasons,
-            list,
-        ):
-
-            reasons.extend(
-                str(x)
-                for x
-                in derivative_reasons
-            )
-
-        if (
-            order_book.get(
-                "direction"
-            )
-            == direction
-        ):
-
-            reasons.append(
-                "Order book supports the direction."
-            )
-
-        if (
-            liquidations.get(
-                "direction"
-            )
-            == direction
-        ):
-
-            reasons.append(
-                "Liquidation flow supports the direction."
-            )
-
-        if publishable_mtf:
-
-            reasons.append(
-                "15m, 1H and 4H are aligned."
-            )
-
-        else:
-
-            reasons.append(
-                "Strict MTF alignment has not been confirmed."
-            )
-
-        if risk_reward >= 2.0:
-
-            reasons.append(
-                f"Risk/reward is {risk_reward:.2f}R."
-            )
-
-        if not levels_valid:
-
-            reasons.append(
-                "Trade levels failed the minimum risk gate."
-            )
-
-        if (
-            four_hour_direction in {
-                "LONG",
-                "SHORT",
-            }
-            and four_hour_direction
-            != direction
-        ):
-
-            reasons.append(
-                "4H conflicts with the selected direction."
-            )
+        for timeframe in self.CORE_TIMEFRAMES:
+            item = timeframes.get(timeframe, {})
+            if isinstance(item, dict) and isinstance(item.get("reasons"), list):
+                reasons.extend(str(x) for x in item["reasons"])
+        if isinstance(confidence_result.get("reasons"), list):
+            reasons.extend(str(x) for x in confidence_result["reasons"])
+        reasons = list(dict.fromkeys(reasons))
 
         # -------------------------------------------------
         # FACTORS
