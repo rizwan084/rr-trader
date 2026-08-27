@@ -97,7 +97,7 @@ async def dashboard_analytics() -> dict[str, Any]:
 
 @router.get("/dashboard/settings")
 async def dashboard_settings() -> dict[str, Any]:
-    return {"success": True, "section": "settings", "minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "risk_per_trade_percent": 1.0, "confidence_engine": "5.0.0", "advanced_rules": "25-50", "deep_analysis_limit": settings.deep_analysis_limit}
+    return {"success": True, "section": "settings", "minimum_rr": MIN_RISK_REWARD, "minimum_confidence": MIN_CONFIDENCE, "risk_per_trade_percent": 1.0, "confidence_engine": "core-7", "rules": ["EMA trend", "RSI", "Momentum", "Volume", "Market Structure", "MTF 15m/1h/4h", "Support/Resistance"], "deep_analysis_limit": settings.deep_analysis_limit}
 
 
 @router.get("/dashboard/forex/status")
