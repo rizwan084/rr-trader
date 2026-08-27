@@ -9,6 +9,24 @@ from app.services.auto_scanner import auto_scanner
 
 router = APIRouter()
 
+# Dashboard/scanner results are QUALIFIED opportunities only.
+# Deep Analysis remains independent and may return any confidence.
+QUALIFIED_CONFIDENCE = 85.0
+
+
+def _qualified(items: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            confidence = float(item.get("confidence", 0) or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence >= QUALIFIED_CONFIDENCE and bool(item.get("publishable", False)):
+            out.append(item)
+    return out
+
 
 # =========================================================
 # SCANNER STATUS
@@ -122,9 +140,13 @@ async def scanner_results(
         analyses = []
 
     # -----------------------------------------------------
-    # Sort by confidence
+    # ONLY QUALIFIED RESULTS
+    # Never expose 40–84.99% scanner candidates as trade opportunities.
     # -----------------------------------------------------
 
+    analyses = _qualified(analyses)
+
+    # Sort by confidence
     analyses = sorted(
         analyses,
         key=lambda item: float(
@@ -246,16 +268,7 @@ async def scanner_top(
     ):
         analyses = []
 
-    qualified = [
-        item
-        for item in analyses
-        if bool(
-            item.get(
-                "publishable",
-                False,
-            )
-        )
-    ]
+    qualified = _qualified(analyses)
 
     qualified.sort(
         key=lambda item: float(
@@ -329,6 +342,8 @@ async def scanner_best() -> dict[str, Any]:
         list,
     ):
         analyses = []
+
+    analyses = _qualified(analyses)
 
     if not analyses:
 
