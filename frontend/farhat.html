@@ -100,7 +100,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 function go(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$('p-'+p).classList.add('active');document.querySelectorAll('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===p));if(p==='signals')loadSignals();if(p==='publisher')loadPublisher()}
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>go(b.dataset.page));
 function rows(a){if(!a?.length)return'<div class="empty">No qualified setups yet.</div>';return'<div class="table-wrap"><table class="table"><thead><tr><th>Symbol</th><th>Direction</th><th>Confidence</th><th>Entry</th><th>SL</th><th>R:R</th></tr></thead><tbody>'+a.map(x=>{const d=String(x.signal||x.direction||'NO_TRADE').toUpperCase();return'<tr><td><b>'+esc(x.symbol)+'</b></td><td class="'+(d==='LONG'?'green':d==='SHORT'?'red':'')+'">'+d+'</td><td>'+cf(x.confidence??x.score)+'</td><td>'+esc(x.entry??x.entry_price??x.price??'—')+'</td><td class="red">'+esc(x.stop_loss??x.sl??'—')+'</td><td class="gold">'+esc(x.rr??x.risk_reward??'—')+'</td></tr>'}).join('')+'</tbody></table></div>'}
-async function api(u,o={}){const r=await fetch(u,{...o,headers:{'Content-Type':'application/json',...(o.headers||{})}});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw Error('Invalid server response')}if(!r.ok)throw Error(d.detail||d.error||('HTTP '+r.status));return d}
+async function api(u,o={},timeoutMs=7000){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);try{const r=await fetch(u,{...o,headers:{'Content-Type':'application/json','Cache-Control':'no-cache',...(o.headers||{})},signal:controller.signal,cache:'no-store'});const t=await r.text();let d;try{d=t?JSON.parse(t):null}catch{throw Error('Invalid server response')}if(!r.ok)throw Error(d?.detail||d?.error||('HTTP '+r.status));return d}catch(e){if(e?.name==='AbortError')throw Error('Backend request timed out');throw e}finally{clearTimeout(timer)}}
 async function checkSupabase(){
  try{const started=performance.now();await sbFetch('signals?select=id&limit=1');const ms=Math.round(performance.now()-started);
  $('sb').textContent='Connected · '+ms+'ms';$('sbLabel').textContent='SUPABASE ONLINE';$('sbDot').className='status-dot ok';$('storageState').textContent='ONLINE';$('sbDetail').textContent='Connected to Farhat Binance database.';return true;
@@ -130,12 +130,12 @@ async function analyze(){const s=$('symbol').value.trim().toUpperCase(),m=$('mar
 async function ask(){const q=$('q').value.trim();if(!q)return;const c=$('chat');c.innerHTML+='<div class="msg user">'+esc(q)+'</div>';try{const d=await api('/api/ai/chat',{method:'POST',body:JSON.stringify({message:q,context:{scanner:S.results,analysis:S.analysis},allow_image:false})});c.innerHTML+='<div class="msg ai">'+esc(d.response||d.message||d.answer||'No response')+'</div>'}catch(e){c.innerHTML+='<div class="msg ai red">'+esc(e.message)+'</div>'}c.scrollTop=c.scrollHeight}
 $('analyze').onclick=analyze;$('ask').onclick=ask;$('refresh').onclick=async()=>{await Promise.all([health(),checkSupabase(),scanner()]);loadSignals();loadPublisher()};$('scan').onclick=async()=>{try{await api('/api/scanner/scan-now',{method:'POST'});await scanner();toast('Scan completed.')}catch(e){toast(e.message)}};
 $('notify').onclick=enableAlerts;$('notifySettings').onclick=enableAlerts;
-if('serviceWorker' in navigator)navigator.serviceWorker.register('/farhat/sw.js').catch(()=>{});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/farhat/sw.js?v=3',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});
 setAlertUI();
 // REST + short polling is used instead of the Supabase browser SDK here.
  // This keeps the dashboard reliable in iPhone/Facebook webviews.
-(async()=>{await Promise.all([health(),checkSupabase(),scanner()]);loadSignals();loadPublisher()})();
-setInterval(scanner,10000);setInterval(health,30000);
+(async()=>{await health();await scanner();setTimeout(checkSupabase,0);setTimeout(loadSignals,0);setTimeout(loadPublisher,0)})();
+setInterval(scanner,15000);setInterval(health,20000);
 </script>
 </body>
 </html>
