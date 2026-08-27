@@ -21,6 +21,7 @@ from app.core.market_resilience import install_market_data_resilience
 from app.services.auto_scanner import auto_scanner
 from app.services.ai import ai_service
 from app.services.forex_engine import forex_engine
+from app.services.supabase_store import supabase_store
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -145,7 +146,7 @@ async def health():
     try: scanner_state = auto_scanner.snapshot()
     except Exception as exc: scanner_state = {"running": False, "status": "ERROR", "error": str(exc)}
     ai_state = get_ai_status()
-    return {"success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION, "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(), "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"}, "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True}, "endpoints": {"dashboard": "/dashboard", "farhat": "/farhat", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"}}
+    return {"success": True, "app": "RR Trader", "status": "healthy", "version": APP_VERSION, "scanner": scanner_state, "ai": ai_state, "forex": forex_engine.status(), "liquidation": {"enabled": True, "endpoint": "/api/liquidation/status"}, "market_data": {"primary": "Binance", "fallback": "Bitget Futures", "resilience_enabled": True}, "supabase": supabase_store.status(), "endpoints": {"dashboard": "/dashboard", "farhat": "/farhat", "bitguru": "/bitguru/", "bitguru_accountability": "/api/dashboard/accountability", "ai_chat": "/api/ai/chat", "scanner": "/api", "liquidation": "/api/liquidation/status", "forex_status": "/api/forex/status", "forex_watchlist": "/api/forex/watchlist", "gold_mtf": "/api/forex/multi-timeframe?symbol=XAUUSD"}}
 
 
 app.include_router(main_router, prefix="/api", tags=["Markets"])
