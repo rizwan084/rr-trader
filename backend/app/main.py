@@ -97,7 +97,7 @@ async def farhat_manifest():
 async def farhat_service_worker():
     path = FRONTEND_DIR / "farhat" / "sw.js"
     if path.is_file():
-        return FileResponse(str(path), media_type="application/javascript")
+        return FileResponse(str(path), media_type="application/javascript", headers={"Cache-Control":"no-store, max-age=0"})
     return {"success": False, "error": "Farhat service worker not found."}
 
 @app.get("/farhat/icon.svg", tags=["Farhat Binance"])
