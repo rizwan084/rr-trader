@@ -1727,39 +1727,34 @@ class MarketScanner:
     async def top_candidates(
         self,
         market: str = "futures",
-        limit: int = 6,
+        limit: int = 20,
     ) -> dict[str, Any]:
+        """Return a liquidity-first universe for the Core-7 engine.
 
-        limit = max(
-            1,
-            int(limit),
-        )
+        No support/rejection/setup score is used here. Those older discovery
+        gates were causing good signals to be discarded before the real
+        Core-7 analysis could score them.
+        """
+        limit = max(1, int(limit))
+        raw_data = await self.market_data.ticker_24h(market=market)
+        if isinstance(raw_data, dict):
+            ticker_data = raw_data.get("data", raw_data.get("result", []))
+        else:
+            ticker_data = raw_data
+        if not isinstance(ticker_data, list):
+            ticker_data = []
 
-        result = await self.scan_market(
-            market=market
-        )
-
-        setup_candidates = result.get(
-            "setup_candidates",
-            [],
-        )
-
-        selected = (
-            setup_candidates[
-                :limit
-            ]
-        )
-
+        ranked = self.rank_markets(ticker_data)
+        selected = ranked[:limit]
         return {
-            **result,
-            "deep_analysis_limit": limit,
+            "success": True,
+            "market": market,
+            "universe_mode": "LIQUIDITY_FIRST_CORE_7",
+            "scanner_version": "core-7",
+            "total_markets": len(ticker_data),
+            "eligible_markets": len(ranked),
             "candidates": selected,
-            "candidate_mode": (
-                "SETUP_FIRST"
-            ),
+            "candidate_mode": "LIQUIDITY_FIRST",
         }
 
 
-__all__ = [
-    "MarketScanner",
-]
