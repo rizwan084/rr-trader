@@ -21,9 +21,17 @@ class SupabaseStore:
         self.key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
     def status(self) -> dict[str, Any]:
+        host = ""
+        project_ref = ""
+        if self.url:
+            host = self.url.replace("https://", "").split("/", 1)[0]
+            if host.endswith(".supabase.co"):
+                project_ref = host.split(".", 1)[0]
         return {
             "configured": bool(self.url and self.key),
             "mode": "server_rest" if self.url and self.key else "not_configured",
+            "project_ref": project_ref,
+            "host": host,
         }
 
     async def _request(self, method: str, path: str, *, params: dict[str, str] | None = None, payload: Any = None) -> Any:
