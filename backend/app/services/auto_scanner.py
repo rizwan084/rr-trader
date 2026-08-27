@@ -73,7 +73,7 @@ TIMEFRAMES = (
 
 MIN_SCAN_SECONDS = 60
 MAX_DEEP_ANALYSIS_CANDIDATES = 8
-MAX_MULTI_EXCHANGE_ENRICH_CANDIDATES = 3
+MAX_MULTI_EXCHANGE_ENRICH_CANDIDATES = 0
 
 
 # =========================================================
@@ -574,64 +574,10 @@ class AutoScanner:
 
                 # =========================================
                 # STAGE 2
-                # Multi-exchange enrichment
-                # =========================================
-
-                async def enrich_safe(
-                    candidate: dict[str, Any],
-                ) -> dict[str, Any]:
-
-                    try:
-
-                        return (
-                            await self._enrich_candidate(
-                                candidate
-                            )
-                        )
-
-                    except Exception as exc:
-
-                        enriched = dict(
-                            candidate
-                        )
-
-                        enriched[
-                            "multi_exchange"
-                        ] = {
-                            "error":
-                                str(exc),
-                            "exchanges":
-                                {},
-                        }
-
-                        return enriched
-
-                # Multi-exchange context is expensive (4 exchanges x 7 timeframes).
-                # Keep the deep-analysis universe small and enrich only the top few
-                # liquidity/setup candidates. Every candidate still reaches the
-                # deterministic master analysis engine.
-                enrich_targets = [
-                    candidate
-                    for candidate in candidates[:MAX_MULTI_EXCHANGE_ENRICH_CANDIDATES]
-                    if isinstance(candidate, dict)
-                ]
-                enriched_targets = await asyncio.gather(
-                    *[enrich_safe(candidate) for candidate in enrich_targets],
-                    return_exceptions=False,
-                )
-                enriched_by_symbol = {
-                    clean_symbol(item.get("symbol")): item
-                    for item in enriched_targets
-                    if isinstance(item, dict)
-                }
-                enriched_candidates = [
-                    enriched_by_symbol.get(
-                        clean_symbol(candidate.get("symbol")),
-                        candidate,
-                    )
-                    for candidate in candidates
-                    if isinstance(candidate, dict)
-                ]
+                # Multi-exchange enrichment is disabled for the live scanner.
+                # Production scanning uses Binance market data only so the
+                # 60-second scanner stays responsive on Render.
+                enriched_candidates = [dict(candidate) for candidate in candidates]
 
                 # =========================================
                 # STAGE 3
