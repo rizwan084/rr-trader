@@ -141,6 +141,12 @@ async def bitguru_icon():
     return {"success": False, "error": "BitGuru icon not found."}
 
 
+@app.get("/healthz", tags=["System"])
+async def healthz():
+    """Ultra-light liveness endpoint; never touches Binance, Supabase, AI or MT5."""
+    return {"success": True, "status": "alive", "app": "RR Trader", "version": APP_VERSION}
+
+
 @app.get("/health", tags=["System"])
 async def health():
     try: scanner_state = auto_scanner.snapshot()
