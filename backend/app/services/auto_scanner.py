@@ -72,6 +72,8 @@ TIMEFRAMES = (
 
 
 MIN_SCAN_SECONDS = 60
+MAX_DEEP_ANALYSIS_CANDIDATES = 8
+MAX_MULTI_EXCHANGE_ENRICH_CANDIDATES = 3
 
 
 # =========================================================
@@ -189,10 +191,13 @@ class AutoScanner:
 
         self.scan_limit = max(
             1,
-            int(
-                scan_limit
-                if scan_limit is not None
-                else settings.deep_analysis_limit
+            min(
+                MAX_DEEP_ANALYSIS_CANDIDATES,
+                int(
+                    scan_limit
+                    if scan_limit is not None
+                    else settings.deep_analysis_limit
+                ),
             ),
         )
 
@@ -601,22 +606,32 @@ class AutoScanner:
 
                         return enriched
 
-                enriched_candidates = (
-                    await asyncio.gather(
-                        *[
-                            enrich_safe(
-                                candidate
-                            )
-                            for candidate
-                            in candidates
-                            if isinstance(
-                                candidate,
-                                dict,
-                            )
-                        ],
-                        return_exceptions=False,
-                    )
+                # Multi-exchange context is expensive (4 exchanges x 7 timeframes).
+                # Keep the deep-analysis universe small and enrich only the top few
+                # liquidity/setup candidates. Every candidate still reaches the
+                # deterministic master analysis engine.
+                enrich_targets = [
+                    candidate
+                    for candidate in candidates[:MAX_MULTI_EXCHANGE_ENRICH_CANDIDATES]
+                    if isinstance(candidate, dict)
+                ]
+                enriched_targets = await asyncio.gather(
+                    *[enrich_safe(candidate) for candidate in enrich_targets],
+                    return_exceptions=False,
                 )
+                enriched_by_symbol = {
+                    clean_symbol(item.get("symbol")): item
+                    for item in enriched_targets
+                    if isinstance(item, dict)
+                }
+                enriched_candidates = [
+                    enriched_by_symbol.get(
+                        clean_symbol(candidate.get("symbol")),
+                        candidate,
+                    )
+                    for candidate in candidates
+                    if isinstance(candidate, dict)
+                ]
 
                 # =========================================
                 # STAGE 3
