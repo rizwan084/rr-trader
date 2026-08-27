@@ -34,6 +34,7 @@ ASSETS_DIR = FRONTEND_DIR / "assets"
 BITGURU_DIR = PROJECT_ROOT / "dashboard"
 BITGURU_INDEX = BITGURU_DIR / "index.html"
 FARHAT_INDEX = FRONTEND_DIR / "farhat.html"
+RR_TRADER_INDEX = FRONTEND_DIR / "rr-app.html"
 BITGURU_ACCOUNTABILITY_INDEX = BITGURU_DIR / "accountability.html"
 
 APP_NAME = "RR Trader Professional Trading Intelligence"
@@ -81,6 +82,7 @@ for path, url, name, html in [(PAGES_DIR, "/pages", "pages", True),(SERVICES_DIR
 
 @app.get("/", tags=["System"])
 async def root():
+    if RR_TRADER_INDEX.is_file(): return FileResponse(str(RR_TRADER_INDEX), media_type="text/html", headers={"Cache-Control":"no-store, max-age=0"})
     if FARHAT_INDEX.is_file(): return FileResponse(str(FARHAT_INDEX), media_type="text/html", headers={"Cache-Control":"no-store, max-age=0"})
     if FRONTEND_INDEX.is_file(): return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     return {"success": False, "error": "Dashboard frontend not found.", "version": APP_VERSION}
@@ -106,6 +108,29 @@ async def farhat_icon():
     if path.is_file():
         return FileResponse(str(path), media_type="image/svg+xml")
     return {"success": False, "error": "Farhat icon not found."}
+
+@app.get("/rr-trader/manifest.json", tags=["RR Trader"])
+async def rr_trader_manifest():
+    path = FRONTEND_DIR / "rr-trader-manifest.json"
+    if path.is_file(): return FileResponse(str(path), media_type="application/manifest+json")
+    return {"success": False, "error": "RR Trader manifest not found."}
+
+@app.get("/rr-trader/sw.js", tags=["RR Trader"])
+async def rr_trader_service_worker():
+    path = FRONTEND_DIR / "rr-trader-sw.js"
+    if path.is_file(): return FileResponse(str(path), media_type="application/javascript", headers={"Cache-Control":"no-store, max-age=0"})
+    return {"success": False, "error": "RR Trader service worker not found."}
+
+@app.get("/rr-trader/icon.svg", tags=["RR Trader"])
+async def rr_trader_icon():
+    path = FRONTEND_DIR / "rr-trader" / "icon.svg"
+    if path.is_file(): return FileResponse(str(path), media_type="image/svg+xml")
+    return {"success": False, "error": "RR Trader icon not found."}
+
+@app.get("/rr-trader", tags=["RR Trader"])
+async def rr_trader_dashboard():
+    if RR_TRADER_INDEX.is_file(): return FileResponse(str(RR_TRADER_INDEX), media_type="text/html")
+    return {"success": False, "error": "RR Trader dashboard not found."}
 
 @app.get("/farhat", tags=["Farhat Binance"])
 async def farhat_dashboard():
