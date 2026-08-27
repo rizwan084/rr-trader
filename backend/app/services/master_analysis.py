@@ -482,278 +482,83 @@ class MasterAnalysisEngine:
         self,
         raw: dict[str, Any],
         timeframe: str,
-    ) -> tuple[
-        str,
-        dict[str, Any],
-    ]:
-
-        raw_timeframes = raw.get(
-            "timeframes",
-            {},
-        )
-
-        if not isinstance(
-            raw_timeframes,
-            dict,
-        ):
+    ) -> tuple[str, dict[str, Any]]:
+        raw_timeframes = raw.get("timeframes", {})
+        if not isinstance(raw_timeframes, dict):
             raw_timeframes = {}
-
-        timeframe_data = raw_timeframes.get(
-            timeframe,
-            {},
-        )
-
-        if not isinstance(
-            timeframe_data,
-            dict,
-        ):
+        timeframe_data = raw_timeframes.get(timeframe, {})
+        if not isinstance(timeframe_data, dict):
             timeframe_data = {}
+        candles = timeframe_data.get("candles", [])
+        if not isinstance(candles, list) or len(candles) < 20:
+            return timeframe, {
+                "success": False, "direction": "NEUTRAL", "confidence": 0.0,
+                "score": 0.0, "indicators": {}, "structure": {}, "reasons": [],
+                "error": "Insufficient candle data.",
+            }
 
-        candles = timeframe_data.get(
-            "candles",
-            [],
+        indicators = indicator_engine.calculate(candles)
+        parsed = indicator_engine.parse_candles(candles)
+        structure = market_structure_engine.analyze(
+            highs=parsed["highs"], lows=parsed["lows"], closes=parsed["closes"]
         )
+        if not isinstance(indicators, dict): indicators = {}
+        if not isinstance(structure, dict): structure = {}
 
-        if not isinstance(
-            candles,
-            list,
-        ):
-            candles = []
-
-        if len(candles) < 20:
-
-            return (
-                timeframe,
-                {
-                    "success": False,
-                    "direction": "NEUTRAL",
-                    "confidence": 0.0,
-                    "score": 0.0,
-                    "indicators": {},
-                    "structure": {},
-                    "reasons": [],
-                    "error":
-                        "Insufficient candle data.",
-                },
-            )
-
-        indicators = (
-            indicator_engine.calculate(
-                candles
-            )
-        )
-
-        parsed = (
-            indicator_engine.parse_candles(
-                candles
-            )
-        )
-
-        structure = (
-            market_structure_engine.analyze(
-                highs=parsed["highs"],
-                lows=parsed["lows"],
-                closes=parsed["closes"],
-            )
-        )
-
-        if not isinstance(
-            indicators,
-            dict,
-        ):
-            indicators = {}
-
-        if not isinstance(
-            structure,
-            dict,
-        ):
-            structure = {}
+        price = self._float(indicators.get("price"))
+        ema20 = self._float(indicators.get("ema20"))
+        ema50 = self._float(indicators.get("ema50"))
+        rsi = self._float(indicators.get("rsi"), 50.0)
+        momentum = self._float(indicators.get("momentum"))
+        volume_ratio = self._float(indicators.get("volume_ratio"))
+        candle = indicators.get("candle_structure", {})
+        candle_direction = self._direction(candle.get("direction") if isinstance(candle, dict) else None)
+        structure_direction = self._direction(structure.get("direction"))
 
         long_score = 0.0
         short_score = 0.0
-
         reasons: list[str] = []
 
-        price = self._float(
-            indicators.get(
-                "price",
-                0,
-            )
-        )
-
-        ema20 = self._float(
-            indicators.get(
-                "ema20",
-                0,
-            )
-        )
-
-        ema50 = self._float(
-            indicators.get(
-                "ema50",
-                0,
-            )
-        )
-
-        momentum = self._float(
-            indicators.get(
-                "momentum",
-                0,
-            )
-        )
-
-        vwap = self._float(
-            indicators.get(
-                "vwap",
-                0,
-            )
-        )
-
-        if (
-            price > 0
-            and ema20 > 0
-            and ema50 > 0
-        ):
-
+        # Core rule 1: EMA trend
+        if price > 0 and ema20 > 0 and ema50 > 0:
             if price > ema20 > ema50:
-
-                long_score += 20
-
-                reasons.append(
-                    "EMA structure bullish."
-                )
-
+                long_score += 20.0; reasons.append("EMA20/EMA50 trend bullish.")
             elif price < ema20 < ema50:
+                short_score += 20.0; reasons.append("EMA20/EMA50 trend bearish.")
 
-                short_score += 20
+        # Core rule 2: RSI
+        if 50.0 < rsi < 70.0:
+            long_score += 12.0; reasons.append("RSI supports bullish momentum.")
+        elif 30.0 < rsi < 50.0:
+            short_score += 12.0; reasons.append("RSI supports bearish momentum.")
 
-                reasons.append(
-                    "EMA structure bearish."
-                )
-
+        # Core rule 3: momentum
         if momentum > 0:
-
-            long_score += min(
-                15,
-                abs(momentum) * 3,
-            )
-
-            reasons.append(
-                "Momentum positive."
-            )
-
+            long_score += min(15.0, abs(momentum) * 3.0); reasons.append("Momentum is positive.")
         elif momentum < 0:
+            short_score += min(15.0, abs(momentum) * 3.0); reasons.append("Momentum is negative.")
 
-            short_score += min(
-                15,
-                abs(momentum) * 3,
-            )
+        # Core rule 4: volume
+        if volume_ratio >= 1.0 and candle_direction == "LONG":
+            long_score += min(15.0, volume_ratio * 7.5); reasons.append("Bullish candle has useful volume.")
+        elif volume_ratio >= 1.0 and candle_direction == "SHORT":
+            short_score += min(15.0, volume_ratio * 7.5); reasons.append("Bearish candle has useful volume.")
 
-            reasons.append(
-                "Momentum negative."
-            )
-
-        structure_direction = self._direction(
-            structure.get(
-                "direction"
-            )
-        )
-
+        # Core rule 5: market structure
         if structure_direction == "LONG":
-
-            long_score += 25
-
-            reasons.append(
-                "Market structure bullish."
-            )
-
+            long_score += 25.0; reasons.append("Market structure is bullish.")
         elif structure_direction == "SHORT":
+            short_score += 25.0; reasons.append("Market structure is bearish.")
 
-            short_score += 25
+        direction = "LONG" if long_score > short_score else "SHORT" if short_score > long_score else "NEUTRAL"
+        score = max(long_score, short_score)
 
-            reasons.append(
-                "Market structure bearish."
-            )
-
-        breakout = indicators.get(
-            "breakout",
-            {},
-        )
-
-        if not isinstance(
-            breakout,
-            dict,
-        ):
-            breakout = {}
-
-        breakout_direction = self._direction(
-            breakout.get(
-                "direction"
-            )
-        )
-
-        if breakout_direction == "LONG":
-
-            long_score += 10
-
-            reasons.append(
-                "Bullish breakout detected."
-            )
-
-        elif breakout_direction == "SHORT":
-
-            short_score += 10
-
-            reasons.append(
-                "Bearish breakout detected."
-            )
-
-        if (
-            price > 0
-            and vwap > 0
-        ):
-
-            if price > vwap:
-                long_score += 5
-
-            elif price < vwap:
-                short_score += 5
-
-        if long_score > short_score:
-            direction = "LONG"
-
-        elif short_score > long_score:
-            direction = "SHORT"
-
-        else:
-            direction = "NEUTRAL"
-
-        score = max(
-            long_score,
-            short_score,
-        )
-
-        return (
-            timeframe,
-            {
-                "success": True,
-                "direction": direction,
-                "confidence": round(
-                    min(
-                        100.0,
-                        score,
-                    ),
-                    2,
-                ),
-                "score": round(
-                    score,
-                    2,
-                ),
-                "indicators": indicators,
-                "structure": structure,
-                "reasons": reasons,
-            },
-        )
+        return timeframe, {
+            "success": True, "direction": direction,
+            "confidence": round(min(100.0, score), 2), "score": round(score, 2),
+            "indicators": indicators, "structure": structure, "reasons": reasons,
+            "core_rules_used": ["EMA trend", "RSI", "Momentum", "Volume", "Market Structure"],
+        }
 
     # =====================================================
     # TRADE LEVELS
