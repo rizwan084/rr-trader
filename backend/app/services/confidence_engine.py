@@ -66,9 +66,12 @@ class ConfidenceEngine:
         ind = x.get("indicators", {}) if isinstance(x, dict) else {}
         if not isinstance(ind, dict):
             return 0.0
-        p = self._clamp(ind.get("price"))
-        e20 = self._clamp(ind.get("ema20"))
-        e50 = self._clamp(ind.get("ema50"))
+        try:
+            p = float(ind.get("price", 0))
+            e20 = float(ind.get("ema20", 0))
+            e50 = float(ind.get("ema50", 0))
+        except (TypeError, ValueError):
+            return 0.0
         if not all((p, e20, e50)):
             return 0.0
         return 100.0 if ((d == "LONG" and p > e20 > e50) or (d == "SHORT" and p < e20 < e50)) else 0.0
