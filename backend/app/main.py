@@ -81,7 +81,7 @@ for path, url, name, html in [(PAGES_DIR, "/pages", "pages", True),(SERVICES_DIR
 
 @app.get("/", tags=["System"])
 async def root():
-    if FARHAT_INDEX.is_file(): return FileResponse(str(FARHAT_INDEX), media_type="text/html")
+    if FARHAT_INDEX.is_file(): return FileResponse(str(FARHAT_INDEX), media_type="text/html", headers={"Cache-Control":"no-store, max-age=0"})
     if FRONTEND_INDEX.is_file(): return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     return {"success": False, "error": "Dashboard frontend not found.", "version": APP_VERSION}
 
