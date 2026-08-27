@@ -85,6 +85,27 @@ async def root():
     return {"success": False, "error": "Dashboard frontend not found.", "version": APP_VERSION}
 
 
+@app.get("/farhat/manifest.json", tags=["Farhat Binance"])
+async def farhat_manifest():
+    path = FRONTEND_DIR / "farhat" / "manifest.json"
+    if path.is_file():
+        return FileResponse(str(path), media_type="application/manifest+json")
+    return {"success": False, "error": "Farhat manifest not found."}
+
+@app.get("/farhat/sw.js", tags=["Farhat Binance"])
+async def farhat_service_worker():
+    path = FRONTEND_DIR / "farhat" / "sw.js"
+    if path.is_file():
+        return FileResponse(str(path), media_type="application/javascript")
+    return {"success": False, "error": "Farhat service worker not found."}
+
+@app.get("/farhat/icon.svg", tags=["Farhat Binance"])
+async def farhat_icon():
+    path = FRONTEND_DIR / "farhat" / "icon.svg"
+    if path.is_file():
+        return FileResponse(str(path), media_type="image/svg+xml")
+    return {"success": False, "error": "Farhat icon not found."}
+
 @app.get("/farhat", tags=["Farhat Binance"])
 async def farhat_dashboard():
     if FARHAT_INDEX.is_file(): return FileResponse(str(FARHAT_INDEX), media_type="text/html")
