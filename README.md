@@ -1,12 +1,14 @@
 # QuantEdge
 
-A production-oriented crypto market intelligence platform rebuilt from RR Trader around a clean monorepo.
+QuantEdge is the complete replacement architecture for RR Trader: a production-oriented crypto market intelligence, scanning, signal and trading workspace.
 
-## Stack
-Next.js + TypeScript frontend, Fastify + WebSocket API, PostgreSQL, Redis, exchange adapters, signal engine, workers and admin controls.
+## Non-negotiable roadmap
+Foundation → Auth → Users → Subscriptions → Access Keys → Payments → Market Data → Exchanges → Signals → Watchlists → Notifications → Workers → Admin, with Next.js web, Fastify/WebSocket API, PostgreSQL, Redis and shared packages.
 
-## Build order
-Foundation → Auth → Market Data → Signal Engine → Realtime → Dashboard → Exchange Connections → Billing → Notifications → Admin → Production.
+## Exchanges
+Binance Spot/Futures first-class; adapter contract also supports Bybit, OKX and Kraken.
 
-## Rule
-No demo market data in production paths. Exchange credentials stay server-side and are never committed.
+## Run
+pnpm install
+cp .env.example .env
+pnpm dev

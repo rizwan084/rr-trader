@@ -1,0 +1,1 @@
+export interface AdminStats{users:number;signals:number;activeJobs:number}

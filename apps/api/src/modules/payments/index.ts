@@ -1,0 +1,1 @@
+export interface PaymentProvider{createCheckout(userId:string,plan:string):Promise<{url:string}>}

@@ -1,2 +1,1 @@
-import Link from "next/link";
-export default function Home(){return <main className="shell"><section className="hero"><span>QUANTEDGE</span><h1>Market intelligence built for serious traders.</h1><p>Realtime markets, multi-factor signals and a professional trading workspace.</p><Link href="/dashboard">Open Dashboard</Link></section></main>}
+import Link from "next/link"; export default function Home(){return <main className="shell"><section className="hero"><p className="muted">QUANTEDGE</p><h1>Professional crypto market intelligence.</h1><p className="muted">Realtime markets, multi-factor scanning, confidence-based signals and a unified trading workspace.</p><Link className="button" href="/dashboard">Enter QuantEdge</Link></section></main>}

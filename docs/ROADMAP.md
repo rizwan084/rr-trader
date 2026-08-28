@@ -1,31 +1,17 @@
-# QuantEdge A-Z Roadmap
+# Strict QuantEdge Roadmap
 
-## Phase 1 — Foundation
-Monorepo, typed contracts, config validation, logging, errors, health checks, Docker, CI.
+1. Foundation: monorepo, config, logging, errors, health, Docker, CI.
+2. Auth: registration, login, sessions, roles and protected routes.
+3. Users: profile, preferences, audit history.
+4. Subscriptions: plans, entitlements and limits.
+5. Access Keys: encrypted server-side exchange credentials.
+6. Payments: provider abstraction, checkout and subscription state.
+7. Market Data: normalized Spot/Futures data, REST + WebSocket, caching and rate limits.
+8. Exchanges: Binance, Bybit, OKX, Kraken adapters.
+9. Signals: multi-factor scanner, confidence framework, LONG/SHORT/NO_TRADE, entry/SL/targets/reasons.
+10. Watchlists: symbols, alerts and personalized scanning.
+11. Notifications: in-app, email/webhook-ready event model.
+12. Workers: scheduled scanning, persistence and notification jobs.
+13. Admin: users, plans, keys, signals, jobs, audit and health.
 
-## Phase 2 — Identity
-Registration/login, sessions/JWT, roles, protected routes, profile, audit log.
-
-## Phase 3 — Market Data
-Common adapter contract; Binance first; then Bybit, OKX and Kraken. REST snapshots plus WebSocket streams, caching and rate-limit handling.
-
-## Phase 4 — Signal Engine
-Multi-timeframe candles, trend/structure, EMA, momentum, volume, volatility, liquidity, derivatives, liquidation context and confidence scoring. LONG/SHORT/NO_TRADE with reasons, entry, SL and targets.
-
-## Phase 5 — Realtime
-WebSocket event bus for tickers, candles, scanner progress, signals and notifications.
-
-## Phase 6 — Product UI
-Dashboard, Markets, Scanner, Signals, Charts, Watchlist, Exchange Connections, Subscription, Profile and Settings.
-
-## Phase 7 — Monetization
-Plans, entitlements, payments, usage limits and access-key management.
-
-## Phase 8 — Automation
-Workers for scanning, signal persistence, alerts, chart generation and publishing integrations.
-
-## Phase 9 — Admin
-Users, subscriptions, exchanges, signals, system health, jobs, audit logs and feature flags.
-
-## Phase 10 — Production
-Tests, observability, migrations, security review, CI/CD and deployment.
+All modules are designed together around this roadmap; no legacy RR Trader implementation is retained as the architecture of record.

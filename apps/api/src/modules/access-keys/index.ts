@@ -1,0 +1,1 @@
+export interface EncryptedAccessKey{exchange:string;market:"spot"|"futures";ciphertext:string;iv:string;tag:string}

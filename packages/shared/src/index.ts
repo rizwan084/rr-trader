@@ -1,4 +1,5 @@
-export type UserRole="user"|"admin";
-export type SubscriptionPlan="free"|"pro"|"enterprise";
-export interface ApiError{code:string;message:string;requestId?:string}
+export type Role="user"|"admin"; export type MarketType="spot"|"futures"; export type ExchangeName="binance"|"bybit"|"okx"|"kraken"; export type Direction="LONG"|"SHORT"|"NO_TRADE";
+export interface Candle{openTime:number;open:number;high:number;low:number;close:number;volume:number;closeTime:number}
+export interface Ticker{symbol:string;last:number;bid:number;ask:number;volume24h:number;change24h:number}
+export interface Signal{symbol:string;exchange:ExchangeName;market:MarketType;direction:Direction;confidence:number;entry:number;stopLoss:number;targets:number[];riskReward:number;reasons:string[];createdAt:number;}
 export interface WsEvent<T=unknown>{type:string;timestamp:number;data:T}

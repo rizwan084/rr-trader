@@ -1,0 +1,1 @@
+export type Plan="free"|"pro"|"enterprise"; export interface Entitlements{plan:Plan;maxWatchlists:number;scannerEnabled:boolean}

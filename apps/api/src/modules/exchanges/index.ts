@@ -1,0 +1,1 @@
+export type SupportedExchange="binance"|"bybit"|"okx"|"kraken";

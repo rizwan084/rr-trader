@@ -1,0 +1,1 @@
+export interface UserProfile{id:string;email:string;role:"user"|"admin";createdAt:number}

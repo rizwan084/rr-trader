@@ -1,4 +1,5 @@
-export type ExchangeName="binance"|"bybit"|"okx"|"kraken";
-export interface Candle{openTime:number;open:number;high:number;low:number;close:number;volume:number;closeTime:number}
-export interface Ticker{symbol:string;last:number;bid:number;ask:number;volume24h:number;change24h:number}
-export interface MarketAdapter{readonly name:ExchangeName;getMarkets():Promise<string[]>;getTicker(symbol:string):Promise<Ticker>;getCandles(symbol:string,interval:string,limit?:number):Promise<Candle[]>;connect?():Promise<void>;disconnect?():Promise<void>}
+import type {Candle,ExchangeName,MarketType,Ticker} from "@quantedge/shared";
+export interface Adapter{readonly exchange:ExchangeName; readonly market:MarketType; getMarkets():Promise<string[]>; getTicker(symbol:string):Promise<Ticker>; getCandles(symbol:string,interval:string,limit:number):Promise<Candle[]>}
+const endpoints={binance:{spot:"https://api.binance.com",futures:"https://fapi.binance.com"}} as const;
+export async function binanceTicker(symbol:string,market:MarketType):Promise<Ticker>{const base=endpoints.binance[market]; const r=await fetch(base+"/api/v3/ticker/24hr?symbol="+encodeURIComponent(symbol)); if(!r.ok) throw new Error("Binance ticker "+r.status); const x:any=await r.json(); return {symbol:x.symbol,last:Number(x.lastPrice),bid:Number(x.bidPrice),ask:Number(x.askPrice),volume24h:Number(x.quoteVolume),change24h:Number(x.priceChangePercent)}}
+export async function binanceCandles(symbol:string,market:MarketType,interval="15m",limit=200):Promise<Candle[]>{const base=endpoints.binance[market]; const path=market==="spot"?"/api/v3/klines":"/fapi/v1/klines"; const r=await fetch(base+path+"?symbol="+encodeURIComponent(symbol)+"&interval="+interval+"&limit="+limit); if(!r.ok) throw new Error("Binance candles "+r.status); const rows:any[]=await r.json(); return rows.map(x=>({openTime:x[0],open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),volume:Number(x[5]),closeTime:x[6]}))}
