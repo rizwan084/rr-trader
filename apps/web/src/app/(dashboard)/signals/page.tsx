@@ -1,0 +1,1 @@
+export default function Signals(){return <main><h1>Signals</h1></main>}

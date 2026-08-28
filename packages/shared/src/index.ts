@@ -1,0 +1,1 @@
+export type UserRole="user"|"admin"; export interface ApiError{code:string;message:string;}

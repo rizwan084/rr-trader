@@ -1,0 +1,1 @@
+export type SignalDirection="LONG"|"SHORT"|"NO_TRADE"; export interface SignalResult{symbol:string;direction:SignalDirection;confidence:number;reasons:string[];entry?:number;stopLoss?:number;targets?:number[];}

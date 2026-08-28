@@ -1,0 +1,1 @@
+export default function Scanner(){return <main><h1>Scanner</h1></main>}

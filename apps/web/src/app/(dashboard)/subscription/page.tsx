@@ -1,0 +1,1 @@
+export default function Subscription(){return <main><h1>Subscription</h1></main>}

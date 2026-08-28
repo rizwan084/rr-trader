@@ -1,0 +1,1 @@
+export default function Watchlist(){return <main><h1>Watchlist</h1></main>}

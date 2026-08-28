@@ -1,0 +1,1 @@
+export type ExchangeName="binance"|"bybit"|"okx"|"kraken"; export interface MarketAdapter{readonly name:ExchangeName; getMarkets():Promise<unknown[]>; getTicker(symbol:string):Promise<unknown>; getCandles(symbol:string,interval:string,limit?:number):Promise<unknown[]>;}

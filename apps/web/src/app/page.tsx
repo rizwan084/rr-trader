@@ -1,0 +1,1 @@
+export default function Home(){return <main><h1>QuantEdge</h1><p>Professional market intelligence and signal platform.</p></main>}

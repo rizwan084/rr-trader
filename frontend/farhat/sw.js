@@ -1,6 +1,0 @@
-const CACHE='farhat-binance-v3';
-self.addEventListener('install',e=>{self.skipWaiting()});
-self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
-self.addEventListener('message',e=>{if(e.data&&e.data.type==='HIGH_CONFIDENCE_ALERT'){const d=e.data;self.registration.showNotification(d.title||'RR Trader Alert',{body:d.body||'95%+ confidence signal detected',icon:'/farhat/icon.svg',badge:'/farhat/icon.svg',tag:d.tag||'rr-high-confidence',data:{url:'/farhat'}})}});
-self.addEventListener('push',e=>{let d={title:'Farhat Binance',body:'95%+ confidence signal detected'};try{d=Object.assign(d,e.data?e.data.json():{})}catch(_){}e.waitUntil(self.registration.showNotification(d.title,{body:d.body,icon:'/farhat/icon.svg',badge:'/farhat/icon.svg',tag:d.tag||'rr-high-confidence',data:d.data||{}}))});
-self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if('focus' in c){c.navigate('/farhat');return c.focus()}}return clients.openWindow('/farhat')}))});

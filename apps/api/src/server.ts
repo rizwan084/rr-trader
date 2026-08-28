@@ -1,0 +1,1 @@
+import Fastify from "fastify"; import websocket from "@fastify/websocket"; const app=Fastify({logger:true}); await app.register(websocket); app.get("/healthz",async()=>({ok:true,service:"quantedge-api"})); app.get("/ws",{websocket:true},socket=>socket.send(JSON.stringify({type:"connected"}))); await app.listen({host:"0.0.0.0",port:Number(process.env.API_PORT||4000)});

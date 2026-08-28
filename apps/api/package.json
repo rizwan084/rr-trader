@@ -1,0 +1,1 @@
+{"name":"@quantedge/api","private":true,"scripts":{"dev":"tsx watch src/server.ts","build":"tsc","start":"node dist/server.js"},"dependencies":{"fastify":"latest","@fastify/websocket":"latest","tsx":"latest","typescript":"latest"}}

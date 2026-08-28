@@ -1,0 +1,1 @@
+export default function Dashboard(){return <main><h1>Dashboard</h1><p>Live market overview, scanner, signals and portfolio intelligence.</p></main>}
