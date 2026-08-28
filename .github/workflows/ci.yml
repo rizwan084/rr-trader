@@ -1,5 +1,8 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -7,10 +10,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
+          version: 10.15.0
           run_install: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - run: pnpm install --no-frozen-lockfile
-      - run: pnpm typecheck
+      - run: pnpm --filter @quantedge/shared exec tsc --noEmit
+      - run: pnpm --filter @quantedge/market-data exec tsc --noEmit
+      - run: pnpm --filter @quantedge/signal-engine exec tsc --noEmit
+      - run: pnpm --filter @quantedge/api exec tsc --noEmit
+      - run: pnpm --filter @quantedge/web exec tsc --noEmit
