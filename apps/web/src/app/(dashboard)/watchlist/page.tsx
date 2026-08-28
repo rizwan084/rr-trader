@@ -1,1 +1,1 @@
-export default function Watchlist(){return <main><h1>Watchlist</h1></main>}
+export default function Page(){return <main className="shell"><h1>watchlist</h1><p>QuantEdge watchlist workspace.</p></main>}

@@ -1,1 +1,1 @@
-export default function Profile(){return <main><h1>Profile</h1></main>}
+export default function Page(){return <main className="shell"><h1>profile</h1><p>QuantEdge profile workspace.</p></main>}

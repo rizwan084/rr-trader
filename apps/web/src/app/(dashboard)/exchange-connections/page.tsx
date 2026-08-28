@@ -1,1 +1,1 @@
-export default function ExchangeConnections(){return <main><h1>Exchange Connections</h1></main>}
+export default function Page(){return <main className="shell"><h1>exchange connections</h1><p>QuantEdge exchange connections workspace.</p></main>}

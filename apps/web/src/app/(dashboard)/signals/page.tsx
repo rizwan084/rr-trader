@@ -1,1 +1,1 @@
-export default function Signals(){return <main><h1>Signals</h1></main>}
+export default function Page(){return <main className="shell"><h1>signals</h1><p>QuantEdge signals workspace.</p></main>}

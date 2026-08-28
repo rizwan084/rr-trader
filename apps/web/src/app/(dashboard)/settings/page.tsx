@@ -1,1 +1,1 @@
-export default function Settings(){return <main><h1>Settings</h1></main>}
+export default function Page(){return <main className="shell"><h1>settings</h1><p>QuantEdge settings workspace.</p></main>}

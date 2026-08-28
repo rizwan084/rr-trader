@@ -1,1 +1,1 @@
-export default function Dashboard(){return <main><h1>Dashboard</h1><p>Live market overview, scanner, signals and portfolio intelligence.</p></main>}
+export default function Page(){return <main className="shell"><h1>dashboard</h1><p>QuantEdge dashboard workspace.</p></main>}

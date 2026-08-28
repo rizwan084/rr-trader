@@ -1,1 +1,1 @@
-export default function Admin(){return <main><h1>Admin</h1></main>}
+export default function Admin(){return <main className="shell"><h1>Admin</h1><p>System administration workspace.</p></main>

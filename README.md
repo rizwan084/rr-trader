@@ -1,5 +1,12 @@
 # QuantEdge
 
-New-generation RR Trader platform rebuilt as a clean monorepo.
+A production-oriented crypto market intelligence platform rebuilt from RR Trader around a clean monorepo.
 
-Architecture: Next.js web, Fastify/WebSocket API, exchange adapters, signal engine, shared contracts, workers and admin modules.
+## Stack
+Next.js + TypeScript frontend, Fastify + WebSocket API, PostgreSQL, Redis, exchange adapters, signal engine, workers and admin controls.
+
+## Build order
+Foundation → Auth → Market Data → Signal Engine → Realtime → Dashboard → Exchange Connections → Billing → Notifications → Admin → Production.
+
+## Rule
+No demo market data in production paths. Exchange credentials stay server-side and are never committed.

@@ -1,1 +1,1 @@
-export default function Charts(){return <main><h1>Charts</h1></main>}
+export default function Page(){return <main className="shell"><h1>charts</h1><p>QuantEdge charts workspace.</p></main>}

@@ -1,1 +1,1 @@
-export default function Subscription(){return <main><h1>Subscription</h1></main>}
+export default function Page(){return <main className="shell"><h1>subscription</h1><p>QuantEdge subscription workspace.</p></main>}

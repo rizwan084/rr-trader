@@ -1,1 +1,1 @@
-export default function Login(){return <main><h1>Sign in</h1></main>}
+export default function Login(){return <main className="shell"><h1>Sign in</h1><p>Authentication foundation.</p></main>}

@@ -1,1 +1,1 @@
-export default function Scanner(){return <main><h1>Scanner</h1></main>}
+export default function Page(){return <main className="shell"><h1>scanner</h1><p>QuantEdge scanner workspace.</p></main>}

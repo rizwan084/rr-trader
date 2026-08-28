@@ -1,1 +1,1 @@
-export default function Markets(){return <main><h1>Markets</h1></main>}
+export default function Page(){return <main className="shell"><h1>markets</h1><p>QuantEdge markets workspace.</p></main>}
