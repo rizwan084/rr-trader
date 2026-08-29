@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: quantedge-api
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/api build
+    startCommand: pnpm --filter @quantedge/api start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MIN_CONFIDENCE
+        value: "85"
+      - key: AUTO_SCAN_INTERVAL
+        value: "60000"
+      - key: AUTO_SCAN_COINS
+        value: "6"
+      - key: API_PORT
+        value: "4000"
+  - type: web
+    name: quantedge-web
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/web build
+    startCommand: pnpm --filter @quantedge/web start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+  - type: worker
+    name: quantedge-scanner
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile
+    startCommand: pnpm --filter @quantedge/api worker
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MIN_CONFIDENCE
+        value: "85"
+      - key: AUTO_SCAN_INTERVAL
+        value: "60000"
+      - key: AUTO_SCAN_COINS
+        value: "6"
