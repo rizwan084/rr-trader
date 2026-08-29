@@ -1,0 +1,3 @@
+import {describe,it,expect} from "vitest";import {analyze} from "./index";
+const candles=Array.from({length:100},(_,i)=>({openTime:i,open:100+i,high:102+i,low:99+i,close:101+i,volume:1000,closeTime:i+1}));
+describe("signal engine",()=>{it("does not force a trade with insufficient data",()=>{expect(analyze("TESTUSDT",candles.slice(0,20)).direction).toBe("NO_TRADE")});it("returns a structured decision",()=>{const s=analyze("TESTUSDT",candles);expect(["LONG","SHORT","NO_TRADE"]).toContain(s.direction);expect(["FORMING","TRIGGERED","NO_TRADE"]).toContain(s.setupState);expect(s.confidence).toBeGreaterThanOrEqual(0)})});
