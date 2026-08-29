@@ -1,1 +1,18 @@
-{"name":"quantedge","private":true,"packageManager":"pnpm@10.15.0","scripts":{"dev":"pnpm --parallel --filter @quantedge/web --filter @quantedge/api dev","build":"pnpm -r build","start":"pnpm --parallel --filter @quantedge/web --filter @quantedge/api start","lint":"pnpm -r lint","test":"pnpm -r test","typecheck":"pnpm -r typecheck"},"devDependencies":{"typescript":"latest","prettier":"latest"}}
+{
+  "name": "quantedge",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @quantedge/web --filter @quantedge/api dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --parallel --filter @quantedge/web --filter @quantedge/api start",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "prettier": "latest",
+    "vitest": "latest"
+  }
+}
