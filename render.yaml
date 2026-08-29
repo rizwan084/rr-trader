@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: quantedge-api
+    name: rr-trader-1
     runtime: node
     plan: starter
     buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build && pnpm --filter @quantedge/api build
@@ -31,7 +31,7 @@ services:
       - key: BASIC_PRICE_USDT
         value: "9"
   - type: web
-    name: quantedge-web
+    name: rr-trader-dashboard
     runtime: node
     plan: starter
     buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/web build
@@ -42,6 +42,8 @@ services:
         value: "22"
       - key: NEXT_PUBLIC_API_URL
         value: "https://rr-trader-1.onrender.com"
+      - key: FRONTEND_URL
+        value: "https://rr-trader-dashboard.onrender.com"
   - type: worker
     name: quantedge-scanner
     runtime: node
