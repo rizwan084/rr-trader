@@ -41,7 +41,7 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: NEXT_PUBLIC_API_URL
-        sync: false
+        value: "https://rr-trader-1.onrender.com"
   - type: worker
     name: quantedge-scanner
     runtime: node
