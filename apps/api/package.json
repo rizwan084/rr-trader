@@ -6,7 +6,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "worker": "tsx src/workers/runner.ts"
+    "worker": "node dist/workers/runner.js"
   },
   "dependencies": {
     "fastify": "latest",
