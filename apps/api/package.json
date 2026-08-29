@@ -14,11 +14,13 @@
     "zod": "latest",
     "@quantedge/shared": "workspace:*",
     "@quantedge/market-data": "workspace:*",
-    "@quantedge/signal-engine": "workspace:*"
+    "@quantedge/signal-engine": "workspace:*",
+    "pg": "latest"
   },
   "devDependencies": {
     "tsx": "latest",
     "typescript": "latest",
-    "@types/node": "latest"
+    "@types/node": "latest",
+    "@types/pg": "latest"
   }
 }
