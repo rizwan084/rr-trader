@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build && tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "worker": "node dist/workers/runner.js"
