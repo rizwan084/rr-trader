@@ -30,6 +30,8 @@ services:
         value: "29"
       - key: BASIC_PRICE_USDT
         value: "9"
+      - key: FRONTEND_URL
+        value: "https://rr-trader-dashboard.onrender.com"
   - type: web
     name: rr-trader-dashboard
     runtime: node
@@ -42,8 +44,6 @@ services:
         value: "22"
       - key: NEXT_PUBLIC_API_URL
         value: "https://rr-trader-1.onrender.com"
-      - key: FRONTEND_URL
-        value: "https://rr-trader-dashboard.onrender.com"
   - type: worker
     name: quantedge-scanner
     runtime: node
