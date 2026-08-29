@@ -1,1 +1,24 @@
-{"name":"@quantedge/api","private":true,"scripts":{"dev":"tsx watch src/server.ts","build":"tsc","start":"node dist/server.js","typecheck":"tsc --noEmit"},"dependencies":{"fastify":"latest","@fastify/websocket":"latest","zod":"latest","@quantedge/shared":"workspace:*","@quantedge/market-data":"workspace:*","@quantedge/signal-engine":"workspace:*"},"devDependencies":{"tsx":"latest","typescript":"latest","@types/node":"latest"}}
+{
+  "name": "@quantedge/api",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "worker": "tsx src/workers/runner.ts"
+  },
+  "dependencies": {
+    "fastify": "latest",
+    "@fastify/websocket": "latest",
+    "zod": "latest",
+    "@quantedge/shared": "workspace:*",
+    "@quantedge/market-data": "workspace:*",
+    "@quantedge/signal-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "latest",
+    "typescript": "latest",
+    "@types/node": "latest"
+  }
+}
