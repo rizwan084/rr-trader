@@ -3,7 +3,7 @@ services:
     name: quantedge-api
     runtime: node
     plan: starter
-    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/api build
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build && pnpm --filter @quantedge/api build
     startCommand: pnpm --filter @quantedge/api start
     healthCheckPath: /healthz
     autoDeploy: true
@@ -46,7 +46,7 @@ services:
     name: quantedge-scanner
     runtime: node
     plan: starter
-    buildCommand: corepack enable && pnpm install --no-frozen-lockfile
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build
     startCommand: pnpm --filter @quantedge/api worker
     autoDeploy: true
     envVars:
