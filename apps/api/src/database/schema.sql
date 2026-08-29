@@ -10,3 +10,25 @@ create table if not exists watchlists(id uuid primary key default gen_random_uui
 create table if not exists signals(id uuid primary key default gen_random_uuid(),symbol text not null,exchange text not null,market text not null,direction text not null,setup_state text not null,confidence numeric not null,entry numeric,stop_loss numeric,targets jsonb not null default '[]',reasons jsonb not null default '[]',created_at timestamptz not null default now());
 create table if not exists audit_logs(id uuid primary key default gen_random_uuid(),user_id uuid,action text not null,metadata jsonb,created_at timestamptz not null default now());
 create index if not exists sessions_user_idx on sessions(user_id);create index if not exists subscriptions_user_idx on subscriptions(user_id);create index if not exists signals_created_idx on signals(created_at desc);
+create table if not exists crypto_invoices(
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid references users(id) on delete set null,
+ email text,
+ plan_id text not null references plans(id),
+ network text not null default 'BEP20',
+ chain_id int not null default 56,
+ asset text not null default 'USDT',
+ token_contract text not null,
+ receive_address text not null,
+ amount numeric(36,18) not null,
+ status text not null default 'pending',
+ tx_hash text unique,
+ sender_address text,
+ block_number bigint,
+ confirmations int,
+ paid_at timestamptz,
+ expires_at timestamptz not null,
+ created_at timestamptz not null default now(),
+ updated_at timestamptz not null default now()
+);
+create index if not exists crypto_invoices_status_idx on crypto_invoices(status,created_at desc);
