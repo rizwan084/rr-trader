@@ -18,6 +18,18 @@ services:
         value: "6"
       - key: API_PORT
         value: "4000"
+      - key: CRYPTO_BEP20_RECEIVE_ADDRESS
+        value: "0x791715b994ba7D176af2630E8f655Ed037dc9999"
+      - key: CRYPTO_USDT_CONTRACT
+        value: "0x55d398326f99059fF775485246999027B3197955"
+      - key: CRYPTO_BSC_RPC_URL
+        value: "https://bsc-dataseed.binance.org"
+      - key: CRYPTO_CONFIRMATIONS
+        value: "12"
+      - key: PRO_PRICE_USDT
+        value: "29"
+      - key: BASIC_PRICE_USDT
+        value: "9"
   - type: web
     name: quantedge-web
     runtime: node
