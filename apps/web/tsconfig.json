@@ -1,1 +1,21 @@
-{"compilerOptions":{"target":"ES2022","lib":["dom","es2022"],"strict":true,"noEmit":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler","isolatedModules":true},"include":["**/*.ts","**/*.tsx",".next/types/**/*.ts"]}
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2024"
+    ],
+    "strict": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "isolatedModules": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ]
+}
