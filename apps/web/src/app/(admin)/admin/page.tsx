@@ -1,1 +1,1 @@
-export default function Admin(){return <main className="shell"><div className="card"><h1>Admin</h1><p className="muted">Users, subscriptions, signals, jobs, audit and system health.</p></div></main>
+export default function Admin(){return <main className="shell"><div className="card"><h1>Admin</h1><p className="muted">Users, subscriptions, signals, jobs, audit and system health.</p></div></main>}
