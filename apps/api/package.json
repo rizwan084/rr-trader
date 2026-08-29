@@ -22,5 +22,6 @@
     "typescript": "latest",
     "@types/node": "latest",
     "@types/pg": "latest"
-  }
+  },
+  "type": "module"
 }
