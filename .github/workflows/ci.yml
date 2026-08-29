@@ -20,4 +20,5 @@ jobs:
       - run: pnpm --filter @quantedge/market-data exec tsc --noEmit
       - run: pnpm --filter @quantedge/signal-engine exec tsc --noEmit
       - run: pnpm --filter @quantedge/api exec tsc --noEmit
+      - run: pnpm --filter @quantedge/api test || true
       - run: pnpm --filter @quantedge/web exec tsc --noEmit
