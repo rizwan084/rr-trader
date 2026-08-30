@@ -1,1 +1,1 @@
-import Link from "next/link"; export default function Home(){return <main className="shell"><section className="hero"><p className="muted">QUANTEDGE</p><h1>Professional crypto market intelligence.</h1><p className="muted">Realtime markets, multi-factor scanning, confidence-based signals and a unified trading workspace.</p><Link className="button" href="/dashboard">Enter QuantEdge</Link></section></main>}
+import {redirect} from "next/navigation"; export default function Home(){redirect("/dashboard")}
