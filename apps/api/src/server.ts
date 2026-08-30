@@ -1,8 +1,27 @@
-import Fastify from "fastify";import websocket from "@fastify/websocket";import {binanceCandles,binanceTicker} from "@quantedge/market-data";import {scanSymbol} from "./workers/scanner.js";import {createCryptoInvoice,getCryptoInvoice,verifyCryptoPayment,cryptoPaymentConfig} from "./modules/crypto-payments.js";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
+import {binanceCandles,binanceTicker} from "@quantedge/market-data";
+import {scanSymbol} from "./workers/scanner.js";
+import {createCryptoInvoice,getCryptoInvoice,verifyCryptoPayment,cryptoPaymentConfig} from "./modules/crypto-payments.js";
+
 const app=Fastify({logger:true});
 const FRONTEND_URL=process.env.FRONTEND_URL||"https://rr-trader-dashboard.onrender.com";
-async function start(){await app.register(websocket);app.get("/",async(_req,reply)=>reply.redirect(FRONTEND_URL));app.get("/healthz",async()=>({ok:true,service:"quantedge-api",time:new Date().toISOString()}));app.get("/api/v1/markets/:symbol",async(req:any)=>binanceTicker(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures"));app.get("/api/v1/candles/:symbol",async(req:any)=>binanceCandles(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures",req.query?.interval||"15m",Number(req.query?.limit||200)));app.get("/api/v1/signals/:symbol",async(req:any)=>scanSymbol(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures"));app.get("/api/v1/payments/crypto/config",async()=>cryptoPaymentConfig());
-app.post("/api/v1/payments/crypto/invoices",async(req:any,reply)=>{try{const body=req.body||{};if(!body.planId)return reply.code(400).send({success:false,error:"PLAN_REQUIRED"});return {success:true,invoice:await createCryptoInvoice({planId:String(body.planId),email:body.email,userId:body.userId})}}catch(e){return reply.code(500).send({success:false,error:"INVOICE_CREATE_FAILED",message:e instanceof Error?e.message:"Unknown error"})}});
-app.get("/api/v1/payments/crypto/invoices/:id",async(req:any,reply)=>{const invoice=await getCryptoInvoice(req.params.id);if(!invoice)return reply.code(404).send({success:false,error:"INVOICE_NOT_FOUND"});return {success:true,invoice}});
-app.post("/api/v1/payments/crypto/invoices/:id/verify",async(req:any,reply)=>{try{if(!req.body?.txHash)return reply.code(400).send({success:false,error:"TX_HASH_REQUIRED"});return {success:true,invoice:await verifyCryptoPayment(req.params.id,String(req.body.txHash))}}catch(e){return reply.code(400).send({success:false,error:e instanceof Error?e.message:"PAYMENT_VERIFICATION_FAILED"})}});
-app.get("/ws",{websocket:true},(socket)=>socket.send(JSON.stringify({type:"connected",timestamp:Date.now()})));app.setErrorHandler((error:unknown,_req,reply)=>{app.log.error(error);reply.code(500).send({success:false,error:"INTERNAL_ERROR",message:error instanceof Error?error.message:"Unknown server error"})});await app.listen({host:"0.0.0.0",port:Number(process.env.API_PORT||process.env.PORT||4000)})}start().catch((e:unknown)=>{app.log.error(e);process.exit(1)})
+
+async function start(){
+ await app.register(cors,{origin:true,methods:["GET","POST","OPTIONS"]});
+ await app.register(websocket);
+ app.get("/",async(_req,reply)=>reply.redirect(FRONTEND_URL));
+ app.get("/healthz",async()=>({ok:true,service:"quantedge-api",time:new Date().toISOString()}));
+ app.get("/api/v1/markets/:symbol",async(req:any)=>binanceTicker(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures"));
+ app.get("/api/v1/candles/:symbol",async(req:any)=>binanceCandles(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures",req.query?.interval||"15m",Number(req.query?.limit||200)));
+ app.get("/api/v1/signals/:symbol",async(req:any)=>scanSymbol(req.params.symbol.toUpperCase(),req.query?.market==="spot"?"spot":"futures"));
+ app.get("/api/v1/payments/crypto/config",async()=>cryptoPaymentConfig());
+ app.post("/api/v1/payments/crypto/invoices",async(req:any,reply)=>{try{const body=req.body||{};if(!body.planId)return reply.code(400).send({success:false,error:"PLAN_REQUIRED"});return {success:true,invoice:await createCryptoInvoice({planId:String(body.planId),email:body.email,userId:body.userId})}}catch(e){return reply.code(500).send({success:false,error:"INVOICE_CREATE_FAILED",message:e instanceof Error?e.message:"Unknown error"})}});
+ app.get("/api/v1/payments/crypto/invoices/:id",async(req:any,reply)=>{const invoice=await getCryptoInvoice(req.params.id);if(!invoice)return reply.code(404).send({success:false,error:"INVOICE_NOT_FOUND"});return {success:true,invoice}});
+ app.post("/api/v1/payments/crypto/invoices/:id/verify",async(req:any,reply)=>{try{if(!req.body?.txHash)return reply.code(400).send({success:false,error:"TX_HASH_REQUIRED"});return {success:true,invoice:await verifyCryptoPayment(req.params.id,String(req.body.txHash))}}catch(e){return reply.code(400).send({success:false,error:e instanceof Error?e.message:"PAYMENT_VERIFICATION_FAILED"})}});
+ app.get("/ws",{websocket:true},(socket)=>socket.send(JSON.stringify({type:"connected",timestamp:Date.now()})));
+ app.setErrorHandler((error:unknown,_req,reply)=>{app.log.error(error);reply.code(500).send({success:false,error:"INTERNAL_ERROR",message:error instanceof Error?error.message:"Unknown server error"})});
+ await app.listen({host:"0.0.0.0",port:Number(process.env.API_PORT||process.env.PORT||4000)});
+}
+start().catch((e:unknown)=>{app.log.error(e);process.exit(1)});
