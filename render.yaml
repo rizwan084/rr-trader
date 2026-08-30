@@ -7,7 +7,6 @@ services:
     startCommand: pnpm --filter @quantedge/api start
     healthCheckPath: /healthz
     autoDeploy: true
-    healthCheckPath: /dashboard
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -39,6 +38,7 @@ services:
     plan: starter
     buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @quantedge/web build
     startCommand: pnpm --filter @quantedge/web start
+    healthCheckPath: /dashboard
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
