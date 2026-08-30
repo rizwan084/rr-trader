@@ -1,27 +1,8 @@
 {
-  "name": "@quantedge/api",
-  "private": true,
-  "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build && tsc",
-    "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
-    "worker": "node dist/workers/runner.js"
-  },
-  "dependencies": {
-    "fastify": "latest",
-    "@fastify/websocket": "latest",
-    "zod": "latest",
-    "@quantedge/shared": "workspace:*",
-    "@quantedge/market-data": "workspace:*",
-    "@quantedge/signal-engine": "workspace:*",
-    "pg": "latest"
-  },
-  "devDependencies": {
-    "tsx": "latest",
-    "typescript": "latest",
-    "@types/node": "latest",
-    "@types/pg": "latest"
-  },
-  "type": "module"
+  "name":"@quantedge/api",
+  "private":true,
+  "scripts":{"dev":"tsx watch src/server.ts","build":"pnpm --filter @quantedge/shared build && pnpm --filter @quantedge/market-data build && pnpm --filter @quantedge/signal-engine build && tsc","start":"node dist/server.js","typecheck":"tsc --noEmit","worker":"node dist/workers/runner.js"},
+  "dependencies":{"fastify":"latest","@fastify/cors":"latest","@fastify/websocket":"latest","zod":"latest","@quantedge/shared":"workspace:*","@quantedge/market-data":"workspace:*","@quantedge/signal-engine":"workspace:*","pg":"latest"},
+  "devDependencies":{"tsx":"latest","typescript":"latest","@types/node":"latest","@types/pg":"latest"},
+  "type":"module"
 }
